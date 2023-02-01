@@ -57,25 +57,16 @@ type UseOptions<TestArgs, WorkerArgs> = { [K in keyof WorkerArgs]?: WorkerArgs[K
  *   // Options specific to each project.
  *   projects: [
  *     {
- *       name: 'Desktop Chromium',
- *       use: {
- *         browserName: 'chromium',
- *         viewport: { width: 1280, height: 720 },
- *       },
+ *       name: 'chromium',
+ *       use: devices['Desktop Chrome'],
  *     },
  *     {
- *       name: 'Desktop Safari',
- *       use: {
- *         browserName: 'webkit',
- *         viewport: { width: 1280, height: 720 },
- *       }
+ *       name: 'firefox',
+ *       use: devices['Desktop Firefox'],
  *     },
  *     {
- *       name: 'Desktop Firefox',
- *       use: {
- *         browserName: 'firefox',
- *         viewport: { width: 1280, height: 720 },
- *       }
+ *       name: 'webkit',
+ *       use: devices['Desktop Safari'],
  *     },
  *     {
  *       name: 'Mobile Chrome',
@@ -144,25 +135,16 @@ export interface Project<TestArgs = {}, WorkerArgs = {}> extends TestProject {
  *   // Options specific to each project.
  *   projects: [
  *     {
- *       name: 'Desktop Chromium',
- *       use: {
- *         browserName: 'chromium',
- *         viewport: { width: 1280, height: 720 },
- *       },
+ *       name: 'chromium',
+ *       use: devices['Desktop Chrome'],
  *     },
  *     {
- *       name: 'Desktop Safari',
- *       use: {
- *         browserName: 'webkit',
- *         viewport: { width: 1280, height: 720 },
- *       }
+ *       name: 'firefox',
+ *       use: devices['Desktop Firefox'],
  *     },
  *     {
- *       name: 'Desktop Firefox',
- *       use: {
- *         browserName: 'firefox',
- *         viewport: { width: 1280, height: 720 },
- *       }
+ *       name: 'webkit',
+ *       use: devices['Desktop Safari'],
  *     },
  *     {
  *       name: 'Mobile Chrome',
@@ -203,6 +185,42 @@ export interface FullProject<TestArgs = {}, WorkerArgs = {}> {
    * Project name is visible in the report and during test execution.
    */
   name: string;
+  /**
+   * List of projects that need to run before any test in this project runs. Dependencies can be useful for configuring
+   * the global setup actions in a way that every action is a test. For example:
+   *
+   * ```js
+   * // playwright.config.ts
+   * import { defineConfig } from '@playwright/test';
+   *
+   * export default defineConfig({
+   *   projects: [
+   *     {
+   *       name: 'setup',
+   *       testMatch: /global.setup\.ts/,
+   *       dependencies: ['setup'],
+   *     },
+   *     {
+   *       name: 'chromium',
+   *       use: devices['Desktop Chrome'],
+   *       dependencies: ['setup'],
+   *     },
+   *     {
+   *       name: 'firefox',
+   *       use: devices['Desktop Firefox'],
+   *       dependencies: ['setup'],
+   *     },
+   *     {
+   *       name: 'webkit',
+   *       use: devices['Desktop Safari'],
+   *       dependencies: ['setup'],
+   *     },
+   *   ],
+   * });
+   * ```
+   *
+   */
+  dependencies: string[];
   /**
    * The base directory, relative to the config file, for snapshot files created with `toMatchSnapshot`. Defaults to
    * [testProject.testDir](https://playwright.dev/docs/api/class-testproject#test-project-test-dir).
@@ -2757,7 +2775,7 @@ export interface TestType<TestArgs extends KeyValue, WorkerArgs extends KeyValue
    */
   fixme(callback: (args: TestArgs & WorkerArgs) => boolean, description?: string): void;
   /**
-   * Unconditonally marks a test as "should fail". Playwright Test runs this test and ensures that it is actually
+   * Unconditionally marks a test as "should fail". Playwright Test runs this test and ensures that it is actually
    * failing. This is useful for documentation purposes to acknowledge that some functionality is broken until it is
    * fixed.
    *
@@ -3724,8 +3742,13 @@ export interface PlaywrightTestArgs {
   request: APIRequestContext;
 }
 
-export type PlaywrightTestProject<TestArgs = {}, WorkerArgs = {}> = Project<PlaywrightTestOptions & TestArgs, PlaywrightWorkerOptions & WorkerArgs>;
-export type PlaywrightTestConfig<TestArgs = {}, WorkerArgs = {}> = Config<PlaywrightTestOptions & TestArgs, PlaywrightWorkerOptions & WorkerArgs>;
+type ExcludeProps<A, B> = {
+  [K in Exclude<keyof A, keyof B>]: A[K];
+};
+type CustomProperties<T> = ExcludeProps<T, PlaywrightTestOptions & PlaywrightWorkerOptions & PlaywrightTestArgs & PlaywrightWorkerArgs>;
+
+export type PlaywrightTestProject<TestArgs = {}, WorkerArgs = {}> = Project<PlaywrightTestOptions & CustomProperties<TestArgs>, PlaywrightWorkerOptions & CustomProperties<WorkerArgs>>;
+export type PlaywrightTestConfig<TestArgs = {}, WorkerArgs = {}> = Config<PlaywrightTestOptions & CustomProperties<TestArgs>, PlaywrightWorkerOptions & CustomProperties<WorkerArgs>>;
 
 import type * as expectType from './expect-types';
 import type { Suite } from './testReporter';
@@ -4986,25 +5009,16 @@ export interface TestInfoError {
  *   // Options specific to each project.
  *   projects: [
  *     {
- *       name: 'Desktop Chromium',
- *       use: {
- *         browserName: 'chromium',
- *         viewport: { width: 1280, height: 720 },
- *       },
+ *       name: 'chromium',
+ *       use: devices['Desktop Chrome'],
  *     },
  *     {
- *       name: 'Desktop Safari',
- *       use: {
- *         browserName: 'webkit',
- *         viewport: { width: 1280, height: 720 },
- *       }
+ *       name: 'firefox',
+ *       use: devices['Desktop Firefox'],
  *     },
  *     {
- *       name: 'Desktop Firefox',
- *       use: {
- *         browserName: 'firefox',
- *         viewport: { width: 1280, height: 720 },
- *       }
+ *       name: 'webkit',
+ *       use: devices['Desktop Safari'],
  *     },
  *     {
  *       name: 'Mobile Chrome',
@@ -5020,6 +5034,43 @@ export interface TestInfoError {
  *
  */
 interface TestProject {
+  /**
+   * List of projects that need to run before any test in this project runs. Dependencies can be useful for configuring
+   * the global setup actions in a way that every action is a test. For example:
+   *
+   * ```js
+   * // playwright.config.ts
+   * import { defineConfig } from '@playwright/test';
+   *
+   * export default defineConfig({
+   *   projects: [
+   *     {
+   *       name: 'setup',
+   *       testMatch: /global.setup\.ts/,
+   *       dependencies: ['setup'],
+   *     },
+   *     {
+   *       name: 'chromium',
+   *       use: devices['Desktop Chrome'],
+   *       dependencies: ['setup'],
+   *     },
+   *     {
+   *       name: 'firefox',
+   *       use: devices['Desktop Firefox'],
+   *       dependencies: ['setup'],
+   *     },
+   *     {
+   *       name: 'webkit',
+   *       use: devices['Desktop Safari'],
+   *       dependencies: ['setup'],
+   *     },
+   *   ],
+   * });
+   * ```
+   *
+   */
+  dependencies?: Array<string>;
+
   /**
    * Configuration for the `expect` assertion library.
    *

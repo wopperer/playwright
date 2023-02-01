@@ -17,16 +17,16 @@
 import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
-import { colors, rimraf } from 'playwright-core/lib/utilsBundle';
+import { debug, rimraf } from 'playwright-core/lib/utilsBundle';
 import { Dispatcher } from './dispatcher';
 import type { TestRunnerPlugin, TestRunnerPluginRegistration } from '../plugins';
 import type { Multiplexer } from '../reporters/multiplexer';
 import type { TestGroup } from '../runner/testGroups';
-import { createTestGroups, filterForShard } from '../runner/testGroups';
+import { createTestGroups } from '../runner/testGroups';
 import type { Task } from './taskRunner';
 import { TaskRunner } from './taskRunner';
 import type { Suite } from '../common/test';
-import type { FullConfigInternal } from '../common/types';
+import type { FullConfigInternal, FullProjectInternal } from '../common/types';
 import { loadAllTests, loadGlobalHook } from './loadUtils';
 import type { Matcher, TestFileFilter } from '../util';
 
@@ -41,14 +41,22 @@ type TaskRunnerOptions = {
   passWithNoTests?: boolean;
 };
 
+type ProjectWithTestGroups = {
+  project: FullProjectInternal;
+  projectSuite: Suite;
+  testGroups: TestGroup[];
+};
+
 export type TaskRunnerState = {
   options: TaskRunnerOptions;
   reporter: Multiplexer;
   config: FullConfigInternal;
   plugins: TestRunnerPlugin[];
-  testGroups: TestGroup[];
   rootSuite?: Suite;
-  dispatcher?: Dispatcher;
+  phases: {
+    dispatcher: Dispatcher,
+    projects: ProjectWithTestGroups[]
+  }[];
 };
 
 export function createTaskRunner(config: FullConfigInternal, reporter: Multiplexer): TaskRunner<TaskRunnerState> {
@@ -71,8 +79,7 @@ export function createTaskRunner(config: FullConfigInternal, reporter: Multiplex
     return () => reporter.onEnd();
   });
 
-  taskRunner.addTask('setup workers', createSetupWorkersTask());
-  taskRunner.addTask('test suite', async ({ dispatcher }) => dispatcher!.run());
+  taskRunner.addTask('test suite', createRunTestsTask());
 
   return taskRunner;
 }
@@ -87,7 +94,7 @@ export function createTaskRunnerForList(config: FullConfigInternal, reporter: Mu
   return taskRunner;
 }
 
-export function createPluginSetupTask(pluginRegistration: TestRunnerPluginRegistration): Task<TaskRunnerState> {
+function createPluginSetupTask(pluginRegistration: TestRunnerPluginRegistration): Task<TaskRunnerState> {
   return async ({ config, reporter, plugins }) => {
     let plugin: TestRunnerPlugin;
     if (typeof pluginRegistration === 'function')
@@ -100,7 +107,7 @@ export function createPluginSetupTask(pluginRegistration: TestRunnerPluginRegist
   };
 }
 
-export function createGlobalSetupTask(): Task<TaskRunnerState> {
+function createGlobalSetupTask(): Task<TaskRunnerState> {
   return async ({ config }) => {
     const setupHook = config.globalSetup ? await loadGlobalHook(config, config.globalSetup) : undefined;
     const teardownHook = config.globalTeardown ? await loadGlobalHook(config, config.globalTeardown) : undefined;
@@ -113,27 +120,7 @@ export function createGlobalSetupTask(): Task<TaskRunnerState> {
   };
 }
 
-export function createSetupWorkersTask(): Task<TaskRunnerState> {
-  return async params => {
-    const { config, testGroups, reporter } = params;
-    if (config._ignoreSnapshots) {
-      reporter.onStdOut(colors.dim([
-        'NOTE: running with "ignoreSnapshots" option. All of the following asserts are silently ignored:',
-        '- expect().toMatchSnapshot()',
-        '- expect().toHaveScreenshot()',
-        '',
-      ].join('\n')));
-    }
-
-    const dispatcher = new Dispatcher(config, testGroups!, reporter);
-    params.dispatcher = dispatcher;
-    return async () => {
-      await dispatcher.stop();
-    };
-  };
-}
-
-export function createRemoveOutputDirsTask(): Task<TaskRunnerState> {
+function createRemoveOutputDirsTask(): Task<TaskRunnerState> {
   return async ({ config, options }) => {
     const outputDirs = new Set<string>();
     for (const p of config.projects) {
@@ -160,20 +147,95 @@ function createLoadTask(): Task<TaskRunnerState> {
     const { config, reporter, options } = context;
     context.rootSuite = await loadAllTests(config, reporter, options, errors);
     // Fail when no tests.
-    if (!context.rootSuite.allTests().length && !context.options.passWithNoTests)
+    if (!context.rootSuite.allTests().length && !context.options.passWithNoTests && !config.shard)
       throw new Error(`No tests found`);
   };
 }
 
 function createTestGroupsTask(): Task<TaskRunnerState> {
   return async context => {
-    const { config, rootSuite } = context;
+    const { config, rootSuite, reporter } = context;
+    for (const phase of buildPhases(rootSuite!.suites)) {
+      // Go over the phases, for each phase create list of task groups.
+      const projects: ProjectWithTestGroups[] = [];
+      for (const projectSuite of phase) {
+        const testGroups = createTestGroups(projectSuite, config.workers);
+        projects.push({
+          project: projectSuite._projectConfig!,
+          projectSuite,
+          testGroups,
+        });
+      }
 
-    for (const projectSuite of rootSuite!.suites)
-      context.testGroups.push(...createTestGroups(projectSuite, config.workers));
+      const testGroupsInPhase = projects.reduce((acc, project) => acc + project.testGroups.length, 0);
+      debug('pw:test:task')(`running phase with ${projects.map(p => p.project.name).sort()} projects, ${testGroupsInPhase} testGroups`);
+      context.phases.push({ dispatcher: new Dispatcher(config, reporter), projects });
+      context.config._maxConcurrentTestGroups = Math.max(context.config._maxConcurrentTestGroups, testGroupsInPhase);
+    }
 
-    if (context.config.shard)
-      filterForShard(context.config.shard, rootSuite!, context.testGroups);
-    context.config._maxConcurrentTestGroups = context.testGroups.length;
+    return async () => {
+      for (const { dispatcher } of context.phases.reverse())
+        await dispatcher.stop();
+    };
   };
+}
+
+function createRunTestsTask(): Task<TaskRunnerState> {
+  return async context => {
+    const { phases } = context;
+    const successfulProjects = new Set<FullProjectInternal>();
+
+    for (const { dispatcher, projects } of phases) {
+      // Each phase contains dispatcher and a set of test groups.
+      // We don't want to run the test groups beloning to the projects
+      // that depend on the projects that failed previously.
+      const phaseTestGroups: TestGroup[] = [];
+      for (const { project, testGroups } of projects) {
+        const hasFailedDeps = project._deps.some(p => !successfulProjects.has(p));
+        if (!hasFailedDeps) {
+          phaseTestGroups.push(...testGroups);
+        } else {
+          for (const testGroup of testGroups) {
+            for (const test of testGroup.tests)
+              test._appendTestResult().status = 'skipped';
+          }
+        }
+      }
+
+      if (phaseTestGroups.length) {
+        await dispatcher!.run(phaseTestGroups);
+        await dispatcher.stop();
+      }
+
+      // If the worker broke, fail everything, we have no way of knowing which
+      // projects failed.
+      if (!dispatcher.hasWorkerErrors()) {
+        for (const { project, projectSuite } of projects) {
+          const hasFailedDeps = project._deps.some(p => !successfulProjects.has(p));
+          if (!hasFailedDeps && !projectSuite.allTests().some(test => !test.ok()))
+            successfulProjects.add(project);
+        }
+      }
+    }
+  };
+}
+
+function buildPhases(projectSuites: Suite[]): Suite[][] {
+  const phases: Suite[][] = [];
+  const processed = new Set<FullProjectInternal>();
+  for (let i = 0; i < projectSuites.length; i++) {
+    const phase: Suite[] = [];
+    for (const projectSuite of projectSuites) {
+      if (processed.has(projectSuite._projectConfig!))
+        continue;
+      if (projectSuite._projectConfig!._deps.find(p => !processed.has(p)))
+        continue;
+      phase.push(projectSuite);
+    }
+    for (const projectSuite of phase)
+      processed.add(projectSuite._projectConfig!);
+    if (phase.length)
+      phases.push(phase);
+  }
+  return phases;
 }
