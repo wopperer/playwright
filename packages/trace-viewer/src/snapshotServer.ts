@@ -14,18 +14,21 @@
  * limitations under the License.
  */
 
-import type { SnapshotStorage } from './snapshotStorage';
 import type { URLSearchParams } from 'url';
 import type { SnapshotRenderer } from './snapshotRenderer';
+import type { SnapshotStorage } from './snapshotStorage';
+import type { ResourceSnapshot } from '@trace/snapshot';
 
 type Point = { x: number, y: number };
 
 export class SnapshotServer {
   private _snapshotStorage: SnapshotStorage;
+  private _resourceLoader: (sha1: string) => Promise<Blob | undefined>;
   private _snapshotIds = new Map<string, SnapshotRenderer>();
 
-  constructor(snapshotStorage: SnapshotStorage) {
+  constructor(snapshotStorage: SnapshotStorage, resourceLoader: (sha1: string) => Promise<Blob | undefined>) {
     this._snapshotStorage = snapshotStorage;
+    this._resourceLoader = resourceLoader;
   }
 
   serveSnapshot(pathname: string, searchParams: URLSearchParams, snapshotUrl: string): Response {
@@ -62,15 +65,19 @@ export class SnapshotServer {
     });
   }
 
-  async serveResource(requestUrl: string, snapshotUrl: string): Promise<Response> {
+  async serveResource(requestUrlAlternatives: string[], method: string, snapshotUrl: string): Promise<Response> {
+    let resource: ResourceSnapshot | undefined;
     const snapshot = this._snapshotIds.get(snapshotUrl)!;
-    const url = removeHash(requestUrl);
-    const resource = snapshot?.resourceByUrl(url);
+    for (const requestUrl of requestUrlAlternatives) {
+      resource = snapshot?.resourceByUrl(removeHash(requestUrl), method);
+      if (resource)
+        break;
+    }
     if (!resource)
       return new Response(null, { status: 404 });
 
     const sha1 = resource.response.content._sha1;
-    const content = sha1 ? await this._snapshotStorage.resourceContent(sha1) || new Blob([]) : new Blob([]);
+    const content = sha1 ? await this._resourceLoader(sha1) || new Blob([]) : new Blob([]);
 
     let contentType = resource.response.content.mimeType;
     const isTextEncoding = /^text\/|^application\/(javascript|json)/.test(contentType);

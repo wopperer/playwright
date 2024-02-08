@@ -17,54 +17,70 @@
 import './filmStrip.css';
 import type { Boundaries, Size } from '../geometry';
 import * as React from 'react';
-import { useMeasure } from './helpers';
-import { upperBound } from '@web/uiUtils';
+import { useMeasure, upperBound } from '@web/uiUtils';
 import type { PageEntry } from '../entries';
-import type { MultiTraceModel } from './modelUtil';
+import type { ActionTraceEventInContext, MultiTraceModel } from './modelUtil';
+import { renderAction } from './actionList';
+import type { Language } from '@isomorphic/locatorGenerators';
+
+export type FilmStripPreviewPoint = {
+  x: number;
+  clientY: number;
+  action?: ActionTraceEventInContext;
+  sdkLanguage: Language;
+};
 
 const tileSize = { width: 200, height: 45 };
+const frameMargin = 2.5;
+const rowHeight = tileSize.height + frameMargin * 2;
 
 export const FilmStrip: React.FunctionComponent<{
-  context: MultiTraceModel,
+  model?: MultiTraceModel,
   boundaries: Boundaries,
-  previewPoint?: { x: number, clientY: number },
-}> = ({ context, boundaries, previewPoint }) => {
+  previewPoint?: FilmStripPreviewPoint,
+}> = ({ model, boundaries, previewPoint }) => {
   const [measure, ref] = useMeasure<HTMLDivElement>();
+  const lanesRef = React.useRef<HTMLDivElement>(null);
 
   let pageIndex = 0;
-  if (ref.current && previewPoint) {
-    const bounds = ref.current.getBoundingClientRect();
-    pageIndex = ((previewPoint.clientY - bounds.top) / tileSize.height) | 0;
+  if (lanesRef.current && previewPoint) {
+    const bounds = lanesRef.current.getBoundingClientRect();
+    pageIndex = ((previewPoint.clientY - bounds.top + lanesRef.current.scrollTop) / rowHeight) | 0;
   }
 
-  const screencastFrames = context.pages[pageIndex]?.screencastFrames;
+  const screencastFrames = model?.pages?.[pageIndex]?.screencastFrames;
   let previewImage = undefined;
   let previewSize = undefined;
   if (previewPoint !== undefined && screencastFrames) {
     const previewTime = boundaries.minimum + (boundaries.maximum - boundaries.minimum) * previewPoint.x / measure.width;
     previewImage = screencastFrames[upperBound(screencastFrames, previewTime, timeComparator) - 1];
-
-    previewSize = previewImage ? inscribe({ width: previewImage.width, height: previewImage.height }, { width: (window.innerWidth * 3 / 4) | 0, height: (window.innerHeight * 3 / 4) | 0 }) : undefined;
+    const fitInto = {
+      width: Math.min(800, (window.innerWidth / 2) | 0),
+      height: Math.min(800, (window.innerHeight / 2) | 0),
+    };
+    previewSize = previewImage ? inscribe({ width: previewImage.width, height: previewImage.height }, fitInto) : undefined;
   }
 
-  return <div className='film-strip' ref={ref}>{
-    context.pages.filter(p => p.screencastFrames.length).map((page, index) => <FilmStripLane
-      boundaries={boundaries}
-      page={page}
-      width={measure.width}
-      key={index}
-    />)
-  }
-  {previewImage && previewSize && previewPoint?.x !== undefined &&
-    <div className='film-strip-hover' style={{
-      width: previewSize.width,
-      height: previewSize.height,
-      top: measure.bottom + 5,
-      left: Math.min(previewPoint!.x, measure.width - previewSize.width - 10),
-    }}>
-      <img src={`sha1/${previewImage.sha1}`} width={previewSize.width} height={previewSize.height} />
-    </div>
-  }
+  return <div className='film-strip' ref={ref}>
+    <div className='film-strip-lanes' ref={lanesRef}>{
+      model?.pages.map((page, index) => <FilmStripLane
+        boundaries={boundaries}
+        page={page}
+        width={measure.width}
+        key={index}
+      />)
+    }</div>
+    {previewPoint?.x !== undefined &&
+      <div className='film-strip-hover' style={{
+        top: measure.bottom + 5,
+        left: Math.min(previewPoint!.x, measure.width - (previewSize ? previewSize.width : 0) - 10),
+      }}>
+        {previewPoint.action && <div className='film-strip-hover-title'>{renderAction(previewPoint.action, previewPoint)}</div>}
+        {previewImage && previewSize && <div style={{ width: previewSize.width, height: previewSize.height }}>
+          <img src={`sha1/${previewImage.sha1}`} width={previewSize.width} height={previewSize.height} />
+        </div>}
+      </div>
+    }
   </div>;
 };
 
@@ -80,7 +96,6 @@ const FilmStripLane: React.FunctionComponent<{
     viewportSize.height = Math.max(viewportSize.height, frame.height);
   }
   const frameSize = inscribe(viewportSize!, tileSize);
-  const frameMargin = 2.5;
   const startTime = screencastFrames[0].timestamp;
   const endTime = screencastFrames[screencastFrames.length - 1].timestamp;
 

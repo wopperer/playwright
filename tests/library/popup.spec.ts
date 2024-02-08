@@ -44,7 +44,7 @@ it('should respect routes from browser context', async function({ browser, serve
   await page.setContent('<a target=_blank rel=noopener href="empty.html">link</a>');
   let intercepted = false;
   await context.route('**/empty.html', route => {
-    route.continue();
+    void route.continue();
     intercepted = true;
   });
   await Promise.all([
@@ -161,7 +161,7 @@ it('should respect routes from browser context when using window.open', async fu
   await page.goto(server.EMPTY_PAGE);
   let intercepted = false;
   await context.route('**/empty.html', route => {
-    route.continue();
+    void route.continue();
     intercepted = true;
   });
   await Promise.all([
@@ -259,6 +259,19 @@ it('should not throttle rAF in the opener page', async ({ page, server }) => {
     waitForRafs(page, 30),
     waitForRafs(popup, 30)
   ]);
+});
+
+it('should not throw when click closes popup', async ({ browserName, page, server }) => {
+  it.fixme(browserName === 'firefox');
+  await page.goto(server.EMPTY_PAGE);
+  const [popup] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.evaluate(() => {
+      const w = window.open('about:blank');
+      w.document.body.innerHTML = `<button onclick="window.close()">close</button>`;
+    }),
+  ]);
+  await popup.getByRole('button').click();
 });
 
 async function waitForRafs(page: Page, count: number): Promise<void> {

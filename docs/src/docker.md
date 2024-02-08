@@ -3,30 +3,34 @@ id: docker
 title: "Docker"
 ---
 
-[Dockerfile.focal] can be used to run Playwright scripts in Docker environment. These image includes all the dependencies needed to run browsers in a Docker container, and also include the browsers themselves.
+## Introduction
 
-<!-- TOC -->
+[Dockerfile.jammy] can be used to run Playwright scripts in Docker environment. These image includes the [Playwright browsers](./browsers.md#install-browsers) and [browser system dependencies](./browsers.md#install-system-dependencies). The Playwright package/dependency is not included in the image and should be installed separately.
 
 ## Usage
 
-This image is published on [Docker Hub].
+This Docker image is published to [Microsoft Artifact Registry].
+
+:::info
+This Docker image is intended to be used for testing and development purposes only. It is not recommended to use this Docker image to visit untrusted websites.
+:::
 
 ### Pull the image
 
 ```bash js
-docker pull mcr.microsoft.com/playwright:v1.31.0-focal
+docker pull mcr.microsoft.com/playwright:v%%VERSION%%-jammy
 ```
 
 ```bash python
-docker pull mcr.microsoft.com/playwright/python:v1.31.0-focal
+docker pull mcr.microsoft.com/playwright/python:v%%VERSION%%-jammy
 ```
 
 ```bash csharp
-docker pull mcr.microsoft.com/playwright/dotnet:v1.31.0-focal
+docker pull mcr.microsoft.com/playwright/dotnet:v%%VERSION%%-jammy
 ```
 
 ```bash java
-docker pull mcr.microsoft.com/playwright/java:v1.31.0-focal
+docker pull mcr.microsoft.com/playwright/java:v%%VERSION%%-jammy
 ```
 
 ### Run the image
@@ -38,19 +42,19 @@ By default, the Docker image will use the `root` user to run the browsers. This 
 On trusted websites, you can avoid creating a separate user and use root for it since you trust the code which will run on the browsers.
 
 ```bash js
-docker run -it --rm --ipc=host mcr.microsoft.com/playwright:v1.31.0-focal /bin/bash
+docker run -it --rm --ipc=host mcr.microsoft.com/playwright:v%%VERSION%%-jammy /bin/bash
 ```
 
 ```bash python
-docker run -it --rm --ipc=host mcr.microsoft.com/playwright/python:v1.31.0-focal /bin/bash
+docker run -it --rm --ipc=host mcr.microsoft.com/playwright/python:v%%VERSION%%-jammy /bin/bash
 ```
 
 ```bash csharp
-docker run -it --rm --ipc=host mcr.microsoft.com/playwright/dotnet:v1.31.0-focal /bin/bash
+docker run -it --rm --ipc=host mcr.microsoft.com/playwright/dotnet:v%%VERSION%%-jammy /bin/bash
 ```
 
 ```bash java
-docker run -it --rm --ipc=host mcr.microsoft.com/playwright/java:v1.31.0-focal /bin/bash
+docker run -it --rm --ipc=host mcr.microsoft.com/playwright/java:v%%VERSION%%-jammy /bin/bash
 ```
 
 #### Crawling and scraping
@@ -58,19 +62,19 @@ docker run -it --rm --ipc=host mcr.microsoft.com/playwright/java:v1.31.0-focal /
 On untrusted websites, it's recommended to use a separate user for launching the browsers in combination with the seccomp profile. Inside the container or if you are using the Docker image as a base image you have to use `adduser` for it.
 
 ```bash js
-docker run -it --rm --ipc=host --user pwuser --security-opt seccomp=seccomp_profile.json mcr.microsoft.com/playwright:v1.31.0-focal /bin/bash
+docker run -it --rm --ipc=host --user pwuser --security-opt seccomp=seccomp_profile.json mcr.microsoft.com/playwright:v%%VERSION%%-jammy /bin/bash
 ```
 
 ```bash python
-docker run -it --rm --ipc=host --user pwuser --security-opt seccomp=seccomp_profile.json mcr.microsoft.com/playwright/python:v1.31.0-focal /bin/bash
+docker run -it --rm --ipc=host --user pwuser --security-opt seccomp=seccomp_profile.json mcr.microsoft.com/playwright/python:v%%VERSION%%-jammy /bin/bash
 ```
 
 ```bash csharp
-docker run -it --rm --ipc=host --user pwuser --security-opt seccomp=seccomp_profile.json mcr.microsoft.com/playwright/dotnet:v1.31.0-focal /bin/bash
+docker run -it --rm --ipc=host --user pwuser --security-opt seccomp=seccomp_profile.json mcr.microsoft.com/playwright/dotnet:v%%VERSION%%-jammy /bin/bash
 ```
 
 ```bash java
-docker run -it --rm --ipc=host --user pwuser --security-opt seccomp=seccomp_profile.json mcr.microsoft.com/playwright/java:v1.31.0-focal /bin/bash
+docker run -it --rm --ipc=host --user pwuser --security-opt seccomp=seccomp_profile.json mcr.microsoft.com/playwright/java:v%%VERSION%%-jammy /bin/bash
 ```
 
 [`seccomp_profile.json`](https://github.com/microsoft/playwright/blob/main/utils/docker/seccomp_profile.json) is needed to run Chromium with sandbox. This is a [default Docker seccomp profile](https://github.com/docker/engine/blob/d0d99b04cf6e00ed3fc27e81fc3d94e7eda70af3/profiles/seccomp/default.json) with extra user namespace cloning permissions:
@@ -103,12 +107,12 @@ See our [Continuous Integration guides](./ci.md) for sample configs.
 
 See [all available image tags].
 
-Docker images are published automatically by GitHub Actions. We currently publish images with the
-following tags (`v1.20.0` in this case is an example:):
-- `:next` - tip-of-tree image version based on Ubuntu 20.04 LTS (Focal Fossa).
-- `:next-focal` - tip-of-tree image version based on Ubuntu 20.04 LTS (Focal Fossa).
-- `:v1.20.0` - Playwright v1.20.0 release docker image based on Ubuntu 20.04 LTS (Focal Fossa).
-- `:v1.20.0-focal` - Playwright v1.20.0 release docker image based on Ubuntu 20.04 LTS (Focal Fossa).
+We currently publish images with the following tags:
+- `:next` - tip-of-tree image version based on Ubuntu 22.04 LTS (Jammy Jellyfish).
+- `:next-jammy` - tip-of-tree image version based on Ubuntu 22.04 LTS (Jammy Jellyfish).
+- `:v%%VERSION%%` - Playwright v%%VERSION%% release docker image based on Ubuntu 22.04 LTS (Jammy Jellyfish).
+- `:v%%VERSION%%-jammy` - Playwright v%%VERSION%% release docker image based on Ubuntu 22.04 LTS (Jammy Jellyfish).
+- `:v%%VERSION%%-focal` - Playwright v%%VERSION%% release docker image based on Ubuntu 20.04 LTS (Focal Fossa).
 - `:sha-XXXXXXX` - docker image for every commit that changed
   docker files or browsers, marked with a [short sha](https://git-scm.com/book/en/v2/Git-Tools-Revision-Selection#Short-SHA-1) (first 7 digits of the SHA commit).
 
@@ -119,27 +123,41 @@ It is recommended to always pin your Docker image to a specific version if possi
 ### Base images
 
 We currently publish images based on the following [Ubuntu](https://hub.docker.com/_/ubuntu) versions:
-- **Ubuntu 22.04 LTS** (Jammy Jellyfish), image tags include `jammy` (not published for Java and .NET)
+- **Ubuntu 22.04 LTS** (Jammy Jellyfish), image tags include `jammy`
 - **Ubuntu 20.04 LTS** (Focal Fossa), image tags include `focal`
 
 #### Alpine
 
 Browser builds for Firefox and WebKit are built for the [glibc](https://en.wikipedia.org/wiki/Glibc) library. Alpine Linux and other distributions that are based on the [musl](https://en.wikipedia.org/wiki/Musl) standard library are not supported.
 
-## Development
+## Using a different .NET version
+* langs: csharp
+
+You can use the [.NET install script](https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-install-script) in order to install different SDK versions:
+
+```bash
+curl -sSL https://dot.net/v1/dotnet-install.sh | bash /dev/stdin --install-dir /usr/share/dotnet --channel 6.0
+```
+
+## Build your own image
 * langs: js
 
-### Build the image
+To run Playwright inside Docker, you need to have Node.js, [Playwright browsers](./browsers.md#install-browsers) and [browser system dependencies](./browsers.md#install-system-dependencies) installed. See the following Dockerfile:
 
-Use [`//utils/docker/build.sh`](https://github.com/microsoft/playwright/blob/main/utils/docker/build.sh) to build the image.
+```Dockerfile
+FROM node:20-bookworm
 
-```
-./utils/docker/build.sh focal playwright:localbuild-focal
-```
-
-The image will be tagged as `playwright:localbuild-focal` and could be run as:
-
-```
-docker run --rm -it playwright:localbuild /bin/bash
+RUN npx -y playwright@%%VERSION%% install --with-deps
 ```
 
+## Build your own image
+* langs: python
+
+To run Playwright inside Docker, you need to have Python, [Playwright browsers](./browsers.md#install-browsers) and [browser system dependencies](./browsers.md#install-system-dependencies) installed. See the following Dockerfile:
+
+```Dockerfile
+FROM python:3.12-bookworm
+
+RUN pip install playwright==@%%VERSION%% && \
+    playwright install --with-deps
+```

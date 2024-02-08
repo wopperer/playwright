@@ -29,6 +29,7 @@ const { workspace } = require('../workspace');
  *   shell: boolean,
  *   env?: NodeJS.ProcessEnv,
  *   cwd?: string,
+ *   concurrent?: boolean,
  * }} Step
  */
 
@@ -61,6 +62,7 @@ const copyFiles = [];
 
 const watchMode = process.argv.slice(2).includes('--watch');
 const lintMode = process.argv.slice(2).includes('--lint');
+const withSourceMaps = process.argv.slice(2).includes('--sourcemap') || watchMode;
 const ROOT = path.join(__dirname, '..', '..');
 
 /**
@@ -77,6 +79,24 @@ function filePath(relative) {
  */
 function quotePath(path) {
   return "\"" + path + "\"";
+}
+
+/**
+ * @param {Step} step
+ */
+function runStep(step) {
+  console.log(`==== Running ${step.command} ${step.args.join(' ')} in ${step.cwd || process.cwd()}`);
+  const out = child_process.spawnSync(step.command, step.args, {
+    stdio: 'inherit',
+    shell: step.shell,
+    env: {
+      ...process.env,
+      ...step.env
+    },
+    cwd: step.cwd,
+  });
+  if (out.status)
+    process.exit(out.status);
 }
 
 async function runWatch() {
@@ -112,9 +132,17 @@ async function runWatch() {
       copyFile(file, from, to);
     });
   }
+
+  for (const step of steps) {
+    if (!step.concurrent)
+      runStep(step);
+  }
+
   /** @type{import('child_process').ChildProcess[]} */
   const spawns = [];
   for (const step of steps) {
+    if (!step.concurrent)
+      continue;
     spawns.push(child_process.spawn(step.command, step.args, {
       stdio: 'inherit',
       shell: step.shell,
@@ -131,23 +159,6 @@ async function runWatch() {
 }
 
 async function runBuild() {
-  /**
-   * @param {Step} step
-   */
-  function runStep(step) {
-    const out = child_process.spawnSync(step.command, step.args, {
-      stdio: 'inherit',
-      shell: step.shell,
-      env: {
-        ...process.env,
-        ...step.env
-      },
-      cwd: step.cwd,
-    });
-    if (out.status)
-      process.exit(out.status);
-  }
-
   for (const { files, from, to, ignored } of copyFiles) {
     const watcher = chokidar.watch([filePath(files)], {
       ignored
@@ -184,8 +195,10 @@ for (const pkg of workspace.packages()) {
   const bundlesDir = path.join(pkg.path, 'bundles');
   if (!fs.existsSync(bundlesDir))
     continue;
-  for (const bundle of fs.readdirSync(bundlesDir))
-    bundles.push(path.join(bundlesDir, bundle));
+  for (const bundle of fs.readdirSync(bundlesDir)) {
+    if (fs.existsSync(path.join(bundlesDir, bundle, 'package.json')))
+      bundles.push(path.join(bundlesDir, bundle));
+  }
 }
 
 // Update test runner.
@@ -200,7 +213,7 @@ steps.push({
 for (const bundle of bundles) {
   steps.push({
     command: 'npm',
-    args: ['ci', '--save=false', '--fund=false', '--audit=false'],
+    args: ['ci', '--save=false', '--fund=false', '--audit=false', '--omit=optional'],
     shell: true,
     cwd: bundle,
   });
@@ -228,12 +241,15 @@ for (const pkg of workspace.packages()) {
     command: 'npx',
     args: [
       'babel',
-      ...(watchMode ? ['-w', '--source-maps'] : []),
+      ...(watchMode ? ['-w'] : []),
+      ...(withSourceMaps ? ['--source-maps'] : []),
       '--extensions', '.ts',
       '--out-dir', quotePath(path.join(pkg.path, 'lib')),
       '--ignore', '"packages/playwright-core/src/server/injected/**/*"',
-      quotePath(path.join(pkg.path, 'src'))],
+      quotePath(path.join(pkg.path, 'src')),
+    ],
     shell: true,
+    concurrent: true,
   });
 }
 
@@ -241,9 +257,14 @@ for (const pkg of workspace.packages()) {
 for (const bundle of bundles) {
   steps.push({
     command: 'npm',
-    args: ['run', watchMode ? 'watch' : 'build'],
+    args: [
+      'run',
+      watchMode ? 'watch' : 'build',
+      ...(withSourceMaps ? ['--', '--sourcemap'] : [])
+    ],
     shell: true,
     cwd: bundle,
+    concurrent: true,
   });
 }
 
@@ -251,17 +272,31 @@ for (const bundle of bundles) {
 for (const webPackage of ['html-reporter', 'recorder', 'trace-viewer']) {
   steps.push({
     command: 'npx',
-    args: ['vite', 'build', ...(watchMode ? ['--watch', '--sourcemap'] : [])],
+    args: [
+      'vite',
+      'build',
+      ...(watchMode ? ['--watch', '--minify=false'] : []),
+      ...(withSourceMaps ? ['--sourcemap'] : []),
+    ],
     shell: true,
     cwd: path.join(__dirname, '..', '..', 'packages', webPackage),
+    concurrent: true,
   });
 }
 // Build/watch trace viewer service worker.
 steps.push({
   command: 'npx',
-  args: ['vite', '--config', 'vite.sw.config.ts', 'build', ...(watchMode ? ['--watch', '--sourcemap'] : [])],
+  args: [
+    'vite',
+    '--config',
+    'vite.sw.config.ts',
+    'build',
+    ...(watchMode ? ['--watch', '--minify=false'] : []),
+    ...(withSourceMaps ? ['--sourcemap'] : []),
+  ],
   shell: true,
   cwd: path.join(__dirname, '..', '..', 'packages', 'trace-viewer'),
+  concurrent: true,
 });
 
 
@@ -269,7 +304,8 @@ steps.push({
 onChanges.push({
   inputs: [
     'packages/playwright-core/src/server/injected/**',
-    'packages/playwright-core/src/server/isomorphic/**',
+    'packages/playwright-ct-core/src/injected/**',
+    'packages/playwright-core/src/utils/isomorphic/**',
     'utils/generate_injected.js',
   ],
   script: 'utils/generate_injected.js',
@@ -315,7 +351,7 @@ copyFiles.push({
   files: 'packages/playwright-core/src/**/*.js',
   from: 'packages/playwright-core/src',
   to: 'packages/playwright-core/lib',
-  ignored: ['**/.eslintrc.js', '**/webpack*.config.js', '**/injected/**/*']
+  ignored: ['**/.eslintrc.js', '**/injected/**/*']
 });
 
 // Sometimes we require JSON files that babel ignores.
@@ -333,12 +369,14 @@ if (lintMode) {
     command: 'npx',
     args: ['tsc', ...(watchMode ? ['-w'] : []), '-p', quotePath(filePath('.'))],
     shell: true,
+    concurrent: true,
   });
   for (const webPackage of ['html-reporter', 'recorder', 'trace-viewer']) {
     steps.push({
       command: 'npx',
       args: ['tsc', ...(watchMode ? ['-w'] : []), '-p', quotePath(filePath(`packages/${webPackage}`))],
       shell: true,
+      concurrent: true,
     });
   }
 }

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { escapeForAttributeSelector, escapeForTextSelector, isString } from './stringUtils';
+import { escapeForAttributeSelector, escapeForTextSelector } from './stringUtils';
 
 export type ByRoleOptions = {
   checked?: boolean;
@@ -29,14 +29,10 @@ export type ByRoleOptions = {
 };
 
 function getByAttributeTextSelector(attrName: string, text: string | RegExp, options?: { exact?: boolean }): string {
-  if (!isString(text))
-    return `internal:attr=[${attrName}=${text}]`;
   return `internal:attr=[${attrName}=${escapeForAttributeSelector(text, options?.exact || false)}]`;
 }
 
 export function getByTestIdSelector(testIdAttributeName: string, testId: string | RegExp): string {
-  if (!isString(testId))
-    return `internal:testid=[${testIdAttributeName}=${testId}]`;
   return `internal:testid=[${testIdAttributeName}=${escapeForAttributeSelector(testId, true)}]`;
 }
 
@@ -75,7 +71,7 @@ export function getByRoleSelector(role: string, options: ByRoleOptions = {}): st
   if (options.level !== undefined)
     props.push(['level', String(options.level)]);
   if (options.name !== undefined)
-    props.push(['name', isString(options.name) ? escapeForAttributeSelector(options.name, !!options.exact) : String(options.name)]);
+    props.push(['name', escapeForAttributeSelector(options.name, !!options.exact)]);
   if (options.pressed !== undefined)
     props.push(['pressed', String(options.pressed)]);
   return `internal:role=${role}${props.map(([n, v]) => `[${n}=${v}]`).join('')}`;

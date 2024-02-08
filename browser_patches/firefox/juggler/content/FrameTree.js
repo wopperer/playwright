@@ -14,10 +14,12 @@ const {Runtime} = ChromeUtils.import('chrome://juggler/content/content/Runtime.j
 const helper = new Helper();
 
 class FrameTree {
-  constructor(rootDocShell) {
+  constructor(rootBrowsingContext) {
     helper.decorateAsEventEmitter(this);
 
-    this._browsingContextGroup = rootDocShell.browsingContext.group;
+    this._rootBrowsingContext = rootBrowsingContext;
+
+    this._browsingContextGroup = rootBrowsingContext.group;
     if (!this._browsingContextGroup.__jugglerFrameTrees)
       this._browsingContextGroup.__jugglerFrameTrees = new Set();
     this._browsingContextGroup.__jugglerFrameTrees.add(this);
@@ -29,12 +31,14 @@ class FrameTree {
 
     this._runtime = new Runtime(false /* isWorker */);
     this._workers = new Map();
-    this._docShellToFrame = new Map();
     this._frameIdToFrame = new Map();
     this._pageReady = false;
     this._javaScriptDisabled = false;
-    this._mainFrame = this._createFrame(rootDocShell);
-    const webProgress = rootDocShell.QueryInterface(Ci.nsIInterfaceRequestor)
+    for (const browsingContext of helper.collectAllBrowsingContexts(rootBrowsingContext))
+      this._createFrame(browsingContext);
+    this._mainFrame = this.frameForBrowsingContext(rootBrowsingContext);
+
+    const webProgress = rootBrowsingContext.docShell.QueryInterface(Ci.nsIInterfaceRequestor)
                                 .getInterface(Ci.nsIWebProgress);
     this.QueryInterface = ChromeUtils.generateQI([
       Ci.nsIWebProgressListener,
@@ -57,12 +61,29 @@ class FrameTree {
     const flags = Ci.nsIWebProgress.NOTIFY_STATE_DOCUMENT |
                   Ci.nsIWebProgress.NOTIFY_LOCATION;
     this._eventListeners = [
+      helper.addObserver((docShell, topic, loadIdentifier) => {
+        const frame = this.frameForDocShell(docShell);
+        if (!frame)
+          return;
+        frame._pendingNavigationId = helper.toProtocolNavigationId(loadIdentifier);
+        this.emit(FrameTree.Events.NavigationStarted, frame);
+      }, 'juggler-navigation-started-renderer'),
       helper.addObserver(this._onDOMWindowCreated.bind(this), 'content-document-global-created'),
       helper.addObserver(this._onDOMWindowCreated.bind(this), 'juggler-dom-window-reused'),
-      helper.addObserver(subject => this._onDocShellCreated(subject.QueryInterface(Ci.nsIDocShell)), 'webnavigation-create'),
-      helper.addObserver(subject => this._onDocShellDestroyed(subject.QueryInterface(Ci.nsIDocShell)), 'webnavigation-destroy'),
+      helper.addObserver((browsingContext, topic, why) => {
+        this._onBrowsingContextAttached(browsingContext);
+      }, 'browsing-context-attached'),
+      helper.addObserver((browsingContext, topic, why) => {
+        this._onBrowsingContextDetached(browsingContext);
+      }, 'browsing-context-discarded'),
+      helper.addObserver((subject, topic, eventInfo) => {
+        const [type, jugglerEventId] = eventInfo.split(' ');
+        this.emit(FrameTree.Events.InputEvent, { type, jugglerEventId: +(jugglerEventId ?? '0') });
+      }, 'juggler-mouse-event-hit-renderer'),
       helper.addProgressListener(webProgress, this, flags),
     ];
+
+    this._dragEventListeners = [];
   }
 
   workers() {
@@ -105,8 +126,7 @@ class FrameTree {
       return null;
     if (!workerDebugger.window)
       return null;
-    const docShell = workerDebugger.window.docShell;
-    return this._docShellToFrame.get(docShell) || null;
+    return this.frameForDocShell(workerDebugger.window.docShell);
   }
 
   _onDOMWindowCreated(window) {
@@ -118,7 +138,7 @@ class FrameTree {
       window.windowUtils.addSheet(sheet, styleSheetService.AGENT_SHEET);
       window[this._addedScrollbarsStylesheetSymbol] = true;
     }
-    const frame = this._docShellToFrame.get(window.docShell) || null;
+    const frame = this.frameForDocShell(window.docShell);
     if (!frame)
       return;
     frame._onGlobalObjectCleared();
@@ -157,8 +177,19 @@ class FrameTree {
 
   allFramesInBrowsingContextGroup(group) {
     const frames = [];
-    for (const frameTree of (group.__jugglerFrameTrees || []))
-      frames.push(...frameTree.frames());
+    for (const frameTree of (group.__jugglerFrameTrees || [])) {
+      for (const frame of frameTree.frames()) {
+        try {
+          // Try accessing docShell and domWindow to filter out dead frames.
+          // This might happen for print-preview frames, but maybe for something else as well.
+          frame.docShell();
+          frame.domWindow();
+          frames.push(frame);
+        } catch (e) {
+          dump(`WARNING: unable to access docShell and domWindow of the frame[id=${frame.id()}]\n`);
+        }
+      }
+    }
     return frames;
   }
 
@@ -182,8 +213,18 @@ class FrameTree {
       frame._addBinding(worldName, name, script);
   }
 
+  frameForBrowsingContext(browsingContext) {
+    if (!browsingContext)
+      return null;
+    const frameId = helper.browsingContextToFrameId(browsingContext);
+    return this._frameIdToFrame.get(frameId) ?? null;
+  }
+
   frameForDocShell(docShell) {
-    return this._docShellToFrame.get(docShell) || null;
+    if (!docShell)
+      return null;
+    const frameId = helper.browsingContextToFrameId(docShell.browsingContext);
+    return this._frameIdToFrame.get(frameId) ?? null;
   }
 
   frame(frameId) {
@@ -211,6 +252,51 @@ class FrameTree {
     this._wdm.removeListener(this._wdmListener);
     this._runtime.dispose();
     helper.removeListeners(this._eventListeners);
+    helper.removeListeners(this._dragEventListeners);
+  }
+
+  onWindowEvent(event) {
+    if (event.type !== 'DOMDocElementInserted' || !event.target.ownerGlobal)
+      return;
+
+    const docShell = event.target.ownerGlobal.docShell;
+    const frame = this.frameForDocShell(docShell);
+    if (!frame) {
+      dump(`WARNING: ${event.type} for unknown frame ${helper.browsingContextToFrameId(docShell.browsingContext)}\n`);
+      return;
+    }
+    if (frame._pendingNavigationId) {
+      docShell.QueryInterface(Ci.nsIWebNavigation);
+      this._frameNavigationCommitted(frame, docShell.currentURI.spec);
+    }
+
+    if (frame === this._mainFrame) {
+      helper.removeListeners(this._dragEventListeners);
+      const chromeEventHandler = docShell.chromeEventHandler;
+      const options = {
+        mozSystemGroup: true,
+        capture: true,
+      };
+      const emitInputEvent = (event) => this.emit(FrameTree.Events.InputEvent, { type: event.type, jugglerEventId: 0 });
+      // Drag events are dispatched from content process, so these we don't see in the
+      // `juggler-mouse-event-hit-renderer` instrumentation.
+      this._dragEventListeners = [
+        helper.addEventListener(chromeEventHandler, 'dragstart', emitInputEvent, options),
+        helper.addEventListener(chromeEventHandler, 'dragover', emitInputEvent, options),
+      ];
+    }
+  }
+
+  _frameNavigationCommitted(frame, url) {
+    for (const subframe of frame._children)
+      this._detachFrame(subframe);
+    const navigationId = frame._pendingNavigationId;
+    frame._pendingNavigationId = null;
+    frame._lastCommittedNavigationId = navigationId;
+    frame._url = url;
+    this.emit(FrameTree.Events.NavigationCommitted, frame);
+    if (frame === this._mainFrame)
+      this.forcePageReady();
   }
 
   onStateChange(progress, request, flag, status) {
@@ -218,11 +304,9 @@ class FrameTree {
       return;
     const channel = request.QueryInterface(Ci.nsIChannel);
     const docShell = progress.DOMWindow.docShell;
-    const frame = this._docShellToFrame.get(docShell);
-    if (!frame) {
-      dump(`WARNING: got a state changed event for un-tracked docshell!\n`);
+    const frame = this.frameForDocShell(docShell);
+    if (!frame)
       return;
-    }
 
     if (!channel.isDocument) {
       // Somehow, we can get worker requests here,
@@ -230,32 +314,11 @@ class FrameTree {
       return;
     }
 
-    const isStart = flag & Ci.nsIWebProgressListener.STATE_START;
-    const isTransferring = flag & Ci.nsIWebProgressListener.STATE_TRANSFERRING;
     const isStop = flag & Ci.nsIWebProgressListener.STATE_STOP;
-
-    if (isStart) {
-      // Starting a new navigation.
-      frame._pendingNavigationId = channelId(channel);
-      frame._pendingNavigationURL = channel.URI.spec;
-      this.emit(FrameTree.Events.NavigationStarted, frame);
-    } else if (isTransferring || (isStop && frame._pendingNavigationId && !status)) {
-      // Navigation is committed.
-      for (const subframe of frame._children)
-        this._detachFrame(subframe);
-      const navigationId = frame._pendingNavigationId;
-      frame._pendingNavigationId = null;
-      frame._pendingNavigationURL = null;
-      frame._lastCommittedNavigationId = navigationId;
-      frame._url = channel.URI.spec;
-      this.emit(FrameTree.Events.NavigationCommitted, frame);
-      if (frame === this._mainFrame)
-        this.forcePageReady();
-    } else if (isStop && frame._pendingNavigationId && status) {
+    if (isStop && frame._pendingNavigationId && status) {
       // Navigation is aborted.
       const navigationId = frame._pendingNavigationId;
       frame._pendingNavigationId = null;
-      frame._pendingNavigationURL = null;
       // Always report download navigation as failure to match other browsers.
       const errorText = helper.getNetworkErrorStatusText(status);
       this.emit(FrameTree.Events.NavigationAborted, frame, navigationId, errorText);
@@ -266,7 +329,7 @@ class FrameTree {
 
   onLocationChange(progress, request, location, flags) {
     const docShell = progress.DOMWindow.docShell;
-    const frame = this._docShellToFrame.get(docShell);
+    const frame = this.frameForDocShell(docShell);
     const sameDocumentNavigation = !!(flags & Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT);
     if (frame && sameDocumentNavigation) {
       frame._url = location.spec;
@@ -274,40 +337,35 @@ class FrameTree {
     }
   }
 
-  _onDocShellCreated(docShell) {
-    // Bug 1142752: sometimes, the docshell appears to be immediately
-    // destroyed, bailout early to prevent random exceptions.
-    if (docShell.isBeingDestroyed())
+  _onBrowsingContextAttached(browsingContext) {
+    // If this browsing context doesn't belong to our frame tree - do nothing.
+    if (browsingContext.top !== this._rootBrowsingContext)
       return;
-    // If this docShell doesn't belong to our frame tree - do nothing.
-    let root = docShell;
-    while (root.parent)
-      root = root.parent;
-    if (root === this._mainFrame._docShell)
-      this._createFrame(docShell);
+    this._createFrame(browsingContext);
   }
 
-  _createFrame(docShell) {
-    const parentFrame = this._docShellToFrame.get(docShell.parent) || null;
+  _onBrowsingContextDetached(browsingContext) {
+    const frame = this.frameForBrowsingContext(browsingContext);
+    if (frame)
+      this._detachFrame(frame);
+  }
+
+  _createFrame(browsingContext) {
+    const parentFrame = this.frameForBrowsingContext(browsingContext.parent);
     if (!parentFrame && this._mainFrame) {
       dump(`WARNING: found docShell with the same root, but no parent!\n`);
       return;
     }
-    const frame = new Frame(this, this._runtime, docShell, parentFrame);
-    this._docShellToFrame.set(docShell, frame);
+    const frame = new Frame(this, this._runtime, browsingContext, parentFrame);
     this._frameIdToFrame.set(frame.id(), frame);
+    if (browsingContext.docShell?.domWindow && browsingContext.docShell?.domWindow.location)
+      frame._url = browsingContext.docShell.domWindow.location.href;
     this.emit(FrameTree.Events.FrameAttached, frame);
     // Create execution context **after** reporting frame.
     // This is our protocol contract.
     if (frame.domWindow())
       frame._onGlobalObjectCleared();
     return frame;
-  }
-
-  _onDocShellDestroyed(docShell) {
-    const frame = this._docShellToFrame.get(docShell);
-    if (frame)
-      this._detachFrame(frame);
   }
 
   _detachFrame(frame) {
@@ -319,7 +377,6 @@ class FrameTree {
       // as it confuses the client.
       return;
     }
-    this._docShellToFrame.delete(frame._docShell);
     this._frameIdToFrame.delete(frame.id());
     if (frame._parentFrame)
       frame._parentFrame._children.delete(frame);
@@ -344,6 +401,7 @@ FrameTree.Events = {
   NavigationAborted: 'navigationaborted',
   SameDocumentNavigation: 'samedocumentnavigation',
   PageReady: 'pageready',
+  InputEvent: 'inputevent',
 };
 
 class IsolatedWorld {
@@ -355,16 +413,14 @@ class IsolatedWorld {
 }
 
 class Frame {
-  constructor(frameTree, runtime, docShell, parentFrame) {
+  constructor(frameTree, runtime, browsingContext, parentFrame) {
     this._frameTree = frameTree;
     this._runtime = runtime;
-    this._docShell = docShell;
+    this._browsingContext = browsingContext;
     this._children = new Set();
-    this._frameId = helper.browsingContextToFrameId(this._docShell.browsingContext);
+    this._frameId = helper.browsingContextToFrameId(browsingContext);
     this._parentFrame = null;
     this._url = '';
-    if (docShell.domWindow && docShell.domWindow.location)
-      this._url = docShell.domWindow.location.href;
     if (parentFrame) {
       this._parentFrame = parentFrame;
       parentFrame._children.add(this);
@@ -372,7 +428,6 @@ class Frame {
 
     this._lastCommittedNavigationId = null;
     this._pendingNavigationId = null;
-    this._pendingNavigationURL = null;
 
     this._textInputProcessor = null;
 
@@ -505,7 +560,7 @@ class Frame {
 
   _onGlobalObjectCleared() {
     const webSocketService = this._frameTree._webSocketEventService;
-    if (this._webSocketListenerInnerWindowId)
+    if (this._webSocketListenerInnerWindowId && webSocketService.hasListenerFor(this._webSocketListenerInnerWindowId))
       webSocketService.removeListener(this._webSocketListenerInnerWindowId, this._webSocketListener);
     this._webSocketListenerInnerWindowId = this.domWindow().windowGlobalChild.innerWindowId;
     webSocketService.addListener(this._webSocketListenerInnerWindowId, this._webSocketListener);
@@ -540,8 +595,8 @@ class Frame {
   }
 
   _updateJavaScriptDisabled() {
-    if (this._docShell.browsingContext.currentWindowContext)
-      this._docShell.browsingContext.currentWindowContext.allowJavascript = !this._frameTree._javaScriptDisabled;
+    if (this._browsingContext.currentWindowContext)
+      this._browsingContext.currentWindowContext.allowJavascript = !this._frameTree._javaScriptDisabled;
   }
 
   mainExecutionContext() {
@@ -552,7 +607,7 @@ class Frame {
     if (!this._textInputProcessor) {
       this._textInputProcessor = Cc["@mozilla.org/text-input-processor;1"].createInstance(Ci.nsITextInputProcessor);
     }
-    this._textInputProcessor.beginInputTransactionForTests(this._docShell.DOMWindow);
+    this._textInputProcessor.beginInputTransactionForTests(this.docShell().DOMWindow);
     return this._textInputProcessor;
   }
 
@@ -560,24 +615,20 @@ class Frame {
     return this._pendingNavigationId;
   }
 
-  pendingNavigationURL() {
-    return this._pendingNavigationURL;
-  }
-
   lastCommittedNavigationId() {
     return this._lastCommittedNavigationId;
   }
 
   docShell() {
-    return this._docShell;
+    return this._browsingContext.docShell;
   }
 
   domWindow() {
-    return this._docShell.domWindow;
+    return this.docShell()?.domWindow;
   }
 
   name() {
-    const frameElement = this._docShell.domWindow.frameElement;
+    const frameElement = this.domWindow()?.frameElement;
     let name = '';
     if (frameElement)
       name = frameElement.getAttribute('name') || frameElement.getAttribute('id') || '';
@@ -606,7 +657,7 @@ class Worker {
 
     workerDebugger.initialize('chrome://juggler/content/content/WorkerMain.js');
 
-    this._channel = new SimpleChannel(`content::worker[${this._workerId}]`);
+    this._channel = new SimpleChannel(`content::worker[${this._workerId}]`, 'worker-' + this._workerId);
     this._channel.setTransport({
       sendMessage: obj => workerDebugger.postMessage(JSON.stringify(obj)),
       dispose: () => {},

@@ -16,6 +16,10 @@
 
 @import '../third_party/vscode/colors.css';
 
+.cm-wrapper {
+  line-height: 18px;
+}
+
 .cm-wrapper, .cm-wrapper > div {
   width: 100%;
   height: 100%;
@@ -109,7 +113,7 @@ body.dark-mode .CodeMirror span.cm-type {
 }
 
 .CodeMirror-cursor {
-  border-left: 1px solid #bebebe;
+  border-left: 1px solid var(--vscode-editor-foreground) !important;
 }
 
 .CodeMirror div.CodeMirror-selected {
@@ -117,7 +121,16 @@ body.dark-mode .CodeMirror span.cm-type {
 }
 
 .CodeMirror .CodeMirror-gutters {
-  background: var(--vscode-editor-background);
+  z-index: 0;
+  background: 1px solid var(--vscode-editorGroup-border);
+  border-right: none;
+}
+
+.CodeMirror .CodeMirror-gutter-elt {
+  background-color: var(--vscode-editorGutter-background);
+}
+
+.CodeMirror .CodeMirror-gutterwrapper {
   border-right: 1px solid var(--vscode-editorGroup-border);
   color: var(--vscode-editorLineNumber-foreground);
 }
@@ -133,4 +146,31 @@ body.dark-mode .CodeMirror span.cm-type {
   background-color: var(--vscode-editor-background) !important;
   font-weight: var(--vscode-editor-font-weight) !important;
   font-size: var(--vscode-editor-font-size) !important;
+}
+
+.CodeMirror .source-line-running {
+  background-color: var(--vscode-editor-selectionBackground);
+  z-index: 2;
+}
+
+.CodeMirror .source-line-paused {
+  background-color: var(--vscode-editor-selectionHighlightBackground);
+  z-index: 2;
+}
+
+.CodeMirror .source-line-error {
+  /* Intentionally empty. */
+}
+
+.CodeMirror .source-line-error-underline {
+  text-decoration: underline wavy var(--vscode-errorForeground);
+  position: relative;
+  top: -12px;
+}
+
+.CodeMirror .source-line-error-widget {
+  background-color: var(--vscode-inputValidation-errorBackground);
+  white-space: pre-wrap;
+  margin: 3px 10px;
+  padding: 5px;
 }

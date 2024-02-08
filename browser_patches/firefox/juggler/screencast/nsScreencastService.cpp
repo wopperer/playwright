@@ -24,6 +24,8 @@
 #include "modules/video_capture/video_capture.h"
 #include "mozilla/widget/PlatformWidgetTypes.h"
 #include "video_engine/desktop_capture_impl.h"
+#include "VideoEngine.h"
+
 extern "C" {
 #include "jpeglib.h"
 }
@@ -55,7 +57,7 @@ rtc::scoped_refptr<webrtc::VideoCaptureModuleEx> CreateWindowCapturer(nsIWidget*
   windowId.AppendPrintf("%" PRIuPTR, rawWindowId);
   bool captureCursor = false;
   static int moduleId = 0;
-  return rtc::scoped_refptr<webrtc::VideoCaptureModuleEx>(webrtc::DesktopCaptureImpl::Create(++moduleId, windowId.get(), CaptureDeviceType::Window, captureCursor));
+  return rtc::scoped_refptr<webrtc::VideoCaptureModuleEx>(webrtc::DesktopCaptureImpl::Create(++moduleId, windowId.get(), camera::CaptureDeviceType::Window, captureCursor));
 }
 
 nsresult generateUid(nsString& uid) {
@@ -80,6 +82,7 @@ class nsScreencastService::Session : public rtc::VideoSinkInterface<webrtc::Vide
                                      public webrtc::RawFrameCallback {
   Session(
     nsIScreencastServiceClient* client,
+    nsIWidget* widget,
     rtc::scoped_refptr<webrtc::VideoCaptureModuleEx>&& capturer,
     std::unique_ptr<ScreencastEncoder> encoder,
     int width, int height,
@@ -87,6 +90,7 @@ class nsScreencastService::Session : public rtc::VideoSinkInterface<webrtc::Vide
     gfx::IntMargin margin,
     uint32_t jpegQuality)
       : mClient(client)
+      , mWidget(widget)
       , mCaptureModule(std::move(capturer))
       , mEncoder(std::move(encoder))
       , mJpegQuality(jpegQuality)
@@ -102,13 +106,20 @@ class nsScreencastService::Session : public rtc::VideoSinkInterface<webrtc::Vide
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(Session)
   static RefPtr<Session> Create(
     nsIScreencastServiceClient* client,
+    nsIWidget* widget,
     rtc::scoped_refptr<webrtc::VideoCaptureModuleEx>&& capturer,
     std::unique_ptr<ScreencastEncoder> encoder,
     int width, int height,
     int viewportWidth, int viewportHeight,
     gfx::IntMargin margin,
     uint32_t jpegQuality) {
-    return do_AddRef(new Session(client, std::move(capturer), std::move(encoder), width, height, viewportWidth, viewportHeight, margin, jpegQuality));
+    return do_AddRef(new Session(client, widget, std::move(capturer), std::move(encoder), width, height, viewportWidth, viewportHeight, margin, jpegQuality));
+  }
+
+  rtc::scoped_refptr<webrtc::VideoCaptureModuleEx> ReuseCapturer(nsIWidget* widget) {
+    if (mWidget == widget)
+      return mCaptureModule;
+    return nullptr;
   }
 
   bool Start() {
@@ -141,10 +152,7 @@ class nsScreencastService::Session : public rtc::VideoSinkInterface<webrtc::Vide
       mCaptureModule->DeRegisterCaptureDataCallback(this);
     else
       mCaptureModule->DeRegisterRawFrameCallback(this);
-    int error = mCaptureModule->StopCapture();
-    if (error) {
-      fprintf(stderr, "StopCapture error %d\n", error);
-    }
+    mCaptureModule->StopCapture();
     if (mEncoder) {
       mEncoder->finish([this, protect = RefPtr{this}] {
         NS_DispatchToMainThread(NS_NewRunnableFunction(
@@ -279,6 +287,7 @@ class nsScreencastService::Session : public rtc::VideoSinkInterface<webrtc::Vide
 
  private:
   RefPtr<nsIScreencastServiceClient> mClient;
+  nsIWidget* mWidget;
   rtc::scoped_refptr<webrtc::VideoCaptureModuleEx> mCaptureModule;
   std::unique_ptr<ScreencastEncoder> mEncoder;
   uint32_t mJpegQuality;
@@ -322,7 +331,14 @@ nsresult nsScreencastService::StartVideoRecording(nsIScreencastServiceClient* aC
     return NS_ERROR_UNEXPECTED;
   nsIWidget* widget = view->GetWidget();
 
-  rtc::scoped_refptr<webrtc::VideoCaptureModuleEx> capturer = CreateWindowCapturer(widget);
+  rtc::scoped_refptr<webrtc::VideoCaptureModuleEx> capturer = nullptr;
+  for (auto& it : mIdToSession) {
+    capturer = it.second->ReuseCapturer(widget);
+    if (capturer)
+      break;
+  }
+  if (!capturer)
+    capturer = CreateWindowCapturer(widget);
   if (!capturer)
     return NS_ERROR_FAILURE;
 
@@ -349,7 +365,7 @@ nsresult nsScreencastService::StartVideoRecording(nsIScreencastServiceClient* aC
   NS_ENSURE_SUCCESS(rv, rv);
   sessionId = uid;
 
-  auto session = Session::Create(aClient, std::move(capturer), std::move(encoder), width, height, viewportWidth, viewportHeight, margin, isVideo ? 0 : quality);
+  auto session = Session::Create(aClient, widget, std::move(capturer), std::move(encoder), width, height, viewportWidth, viewportHeight, margin, isVideo ? 0 : quality);
   if (!session->Start())
     return NS_ERROR_FAILURE;
   mIdToSession.emplace(sessionId, std::move(session));

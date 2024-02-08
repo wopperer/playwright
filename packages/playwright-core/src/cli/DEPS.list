@@ -4,13 +4,12 @@
 ../common
 ../debug/injected
 ../generated/
-../grid
 ../server/injected/
 ../server/trace
 ../utils
 ../utilsBundle.ts
 
-[cli.ts]
+[program.ts]
 ../server/trace/viewer/traceViewer.ts
 ../server/
 ../containers/

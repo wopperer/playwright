@@ -31,7 +31,7 @@ type Fixtures = {
 const test = baseTest.extend<Fixtures>({
   wsEndpoint: async ({ }, use) => {
     process.env.PW_DEBUG_CONTROLLER_HEADLESS = '1';
-    const server = new PlaywrightServer({ path: '/' + createGuid(), maxConnections: Number.MAX_VALUE, enableSocksProxy: false });
+    const server = new PlaywrightServer({ mode: 'extension', path: '/' + createGuid(), maxConnections: Number.MAX_VALUE, enableSocksProxy: false });
     const wsEndpoint = await server.listen();
     await use(wsEndpoint);
     await server.close();
@@ -46,13 +46,12 @@ const test = baseTest.extend<Fixtures>({
   connectedBrowserFactory: async ({ wsEndpoint, browserType }, use) => {
     const browsers: BrowserWithReuse [] = [];
     await use(async () => {
-      const oldValue = (browserType as any)._defaultConnectOptions;
-      (browserType as any)._defaultConnectOptions = {
-        wsEndpoint,
-        headers: { 'x-playwright-reuse-context': '1', },
-      };
-      const browser = await browserType.launch() as BrowserWithReuse;
-      (browserType as any)._defaultConnectOptions = oldValue;
+      const browser = await browserType.connect(wsEndpoint, {
+        headers: {
+          'x-playwright-launch-options': JSON.stringify((browserType as any)._defaultLaunchOptions),
+          'x-playwright-reuse-context': '1',
+        },
+      }) as BrowserWithReuse;
       browsers.push(browser);
       return browser;
     });
@@ -65,6 +64,7 @@ const test = baseTest.extend<Fixtures>({
 });
 
 test.slow(true, 'All controller tests are slow');
+test.skip(({ mode }) => mode.startsWith('service'));
 
 test('should pick element', async ({ backend, connectedBrowser }) => {
   const events = [];
@@ -227,19 +227,6 @@ test('test', async ({ page }) => {
   await page.getByTestId('one').click();
 });`
   });
-});
-
-
-test('should pause and resume', async ({ backend, connectedBrowser }) => {
-  const events = [];
-  backend.on('paused', event => events.push(event));
-  const context = await connectedBrowser._newContextForReuse();
-  const page = await context.newPage();
-  await page.setContent('<button>Submit</button>');
-  const pausePromise = page.pause();
-  await expect.poll(() => events[events.length - 1]).toEqual({ paused: true });
-  await backend.resume();
-  await pausePromise;
 });
 
 test('should reset routes before reuse', async ({ server, connectedBrowserFactory }) => {

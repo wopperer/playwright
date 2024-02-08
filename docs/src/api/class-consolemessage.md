@@ -7,7 +7,7 @@ context.
 
 ```js
 // Listen for all console logs
-page.on('console', msg => console.log(msg.text()))
+page.on('console', msg => console.log(msg.text()));
 
 // Listen for all console events and handle errors
 page.on('console', msg => {
@@ -23,8 +23,8 @@ await page.evaluate(() => {
 const msg = await msgPromise;
 
 // Deconstruct console log arguments
-await msg.args[0].jsonValue() // hello
-await msg.args[1].jsonValue() // 42
+await msg.args()[0].jsonValue(); // hello
+await msg.args()[1].jsonValue(); // 42
 ```
 
 ```java
@@ -124,6 +124,12 @@ List of arguments passed to a `console` function call. See also [`event: Page.co
 - returns: <[string]>
 
 URL of the resource followed by 0-based line and column numbers in the resource formatted as `URL:line:column`.
+
+## method: ConsoleMessage.page
+* since: v1.34
+- returns: <[null]|[Page]>
+
+The page that produced this console message, if any.
 
 ## method: ConsoleMessage.text
 * since: v1.8

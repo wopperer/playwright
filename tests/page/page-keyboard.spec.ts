@@ -326,6 +326,16 @@ it('should handle selectAll', async ({ page, server, isMac }) => {
   expect(await page.$eval('textarea', textarea => textarea.value)).toBe('');
 });
 
+it('pressing Meta should not result in any text insertion on any platform', async ({ page, server, isMac }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28495' });
+  await page.setContent('<input type="text" value="hello world">');
+  const input = page.locator('input');
+  await expect(input).toHaveValue('hello world');
+  await input.focus();
+  await page.keyboard.press('Meta');
+  await expect(input).toHaveValue('hello world');
+});
+
 it('should be able to prevent selectAll', async ({ page, server, isMac }) => {
   await page.goto(server.PREFIX + '/input/textarea.html');
   const textarea = await page.$('textarea');
@@ -358,25 +368,13 @@ it('should support MacOS shortcuts', async ({ page, server, platform, browserNam
   expect(await page.$eval('textarea', textarea => textarea.value)).toBe('some ');
 });
 
-it('should press the meta key', async ({ page, browserName, isMac }) => {
+it('should press the meta key', async ({ page }) => {
   const lastEvent = await captureLastKeydown(page);
   await page.keyboard.press('Meta');
   const { key, code, metaKey } = await lastEvent.jsonValue();
-  if (browserName === 'firefox' && !isMac)
-    expect(key).toBe('OS');
-  else
-    expect(key).toBe('Meta');
-
-  if (browserName === 'firefox')
-    expect(code).toBe('OSLeft');
-  else
-    expect(code).toBe('MetaLeft');
-
-  if (browserName === 'firefox' && !isMac)
-    expect(metaKey).toBe(false);
-  else
-    expect(metaKey).toBe(true);
-
+  expect(key).toBe('Meta');
+  expect(code).toBe('MetaLeft');
+  expect(metaKey).toBe(true);
 });
 
 it('should work with keyboard events with empty.html', async ({ page, server }) => {
@@ -663,3 +661,53 @@ async function captureLastKeydown(page) {
   });
   return lastEvent;
 }
+
+it('should dispatch insertText after context menu was opened', async ({ server, page, browserName, isWindows }) => {
+  it.skip(browserName === 'chromium' && isWindows, 'context menu support is best-effort for Linux and MacOS');
+  await page.goto(server.PREFIX + '/input/textarea.html');
+  await page.evaluate(() => {
+    window['contextMenuPromise'] = new Promise(x => {
+      window.addEventListener('contextmenu', x, false);
+    });
+  });
+
+  const box = await page.locator('textarea').boundingBox();
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await page.mouse.click(cx, cy, { button: 'right' });
+  await page.evaluate(() => window['contextMenuPromise']);
+
+  await page.keyboard.insertText('嗨');
+  await expect.poll(() => page.locator('textarea').inputValue()).toBe('嗨');
+});
+
+it('should type after context menu was opened', async ({ server, page, browserName, isWindows }) => {
+  it.skip(browserName === 'chromium' && isWindows, 'context menu support is best-effort for Linux and MacOS');
+  await page.evaluate(() => {
+    window['keys'] = [];
+    window.addEventListener('keydown', event => window['keys'].push(event.key));
+    window['contextMenuPromise'] = new Promise(x => {
+      window.addEventListener('contextmenu', x, false);
+    });
+  });
+
+
+  await page.mouse.move(100, 100);
+  await page.mouse.down({ button: 'right' });
+  await page.evaluate(() => window['contextMenuPromise']);
+
+  await page.keyboard.down('ArrowDown');
+
+  await expect.poll(() => page.evaluate('window.keys')).toEqual(['ArrowDown']);
+});
+
+it('should have correct Keydown/Keyup order when pressing Escape key', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27709' });
+
+  await page.goto(server.PREFIX + '/input/keyboard.html');
+  await page.keyboard.press('Escape');
+  expect(await page.evaluate('getResult()')).toBe(`
+Keydown: Escape Escape 27 []
+Keyup: Escape Escape 27 []
+`.trim());
+});

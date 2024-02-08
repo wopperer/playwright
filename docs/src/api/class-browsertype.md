@@ -35,9 +35,9 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     chromium = playwright.chromium
     browser = await chromium.launch()
     page = await browser.new_page()
@@ -52,9 +52,9 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     chromium = playwright.chromium
     browser = chromium.launch()
     page = browser.new_page()
@@ -123,6 +123,22 @@ Logger sink for Playwright logging. Optional.
 
 Maximum time in milliseconds to wait for the connection to be established. Defaults to
 `0` (no timeout).
+
+### option: BrowserType.connect.exposeNetwork
+* since: v1.37
+- `exposeNetwork` <[string]>
+
+This option exposes network available on the connecting client to the browser being connected to. Consists of a list of rules separated by comma.
+
+Available rules:
+1. Hostname pattern, for example: `example.com`, `*.org:99`, `x.*.y.com`, `*foo.org`.
+1. IP literal, for example: `127.0.0.1`, `0.0.0.0:99`, `[::1]`, `[0:0::1]:99`.
+1. `<loopback>` that matches local loopback interfaces: `localhost`, `*.localhost`, `127.0.0.1`, `[::1]`.
+
+Some common examples:
+1. `"*"` to expose all network.
+1. `"<loopback>"` to expose localhost network.
+1. `"*.test.internal-domain,*.staging.internal-domain,<loopback>"` to expose test/staging deployments and localhost.
 
 ## async method: BrowserType.connectOverCDP
 * since: v1.9
@@ -249,9 +265,9 @@ browser = playwright.chromium.launch( # or "firefox" or "webkit".
 ```
 
 ```csharp
-var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions {
+var browser = await playwright.Chromium.LaunchAsync(new() {
     IgnoreDefaultArgs = new[] { "--mute-audio" }
-})
+});
 ```
 
 > **Chromium-only** Playwright can also be used to control the Google Chrome or Microsoft Edge browsers, but it works best with the version of
@@ -320,6 +336,12 @@ use a temporary directory instead.
 
 ### option: BrowserType.launchPersistentContext.-inline- = %%-shared-context-params-list-v1.8-%%
 * since: v1.8
+
+### option: BrowserType.launchPersistentContext.firefoxUserPrefs = %%-js-python-browser-option-firefoxuserprefs-%%
+* since: v1.40
+
+### option: BrowserType.launchPersistentContext.firefoxUserPrefs2 = %%-csharp-java-browser-option-firefoxuserprefs-%%
+* since: v1.40
 
 ## async method: BrowserType.launchServer
 * since: v1.8

@@ -35,9 +35,9 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     chromium = playwright.chromium # or "firefox" or "webkit".
     browser = await chromium.launch()
     page = await browser.new_page()
@@ -52,9 +52,9 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     chromium = playwright.chromium # or "firefox" or "webkit".
     browser = chromium.launch()
     page = browser.new_page()
@@ -115,9 +115,9 @@ const iPhone = devices['iPhone 6'];
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     webkit = playwright.webkit
     iphone = playwright.devices["iPhone 6"]
     browser = await webkit.launch()
@@ -134,9 +134,9 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     webkit = playwright.webkit
     iphone = playwright.devices["iPhone 6"]
     browser = webkit.launch()
@@ -202,16 +202,18 @@ try {
 
 ```python async
 try:
-    await page.wait_for_selector(".foo")
+  await page.wait_for_selector(".foo")
 except TimeoutError as e:
-    # do something if this is a timeout.
+  pass
+  # do something if this is a timeout.
 ```
 
 ```python sync
 try:
-    page.wait_for_selector(".foo")
+  page.wait_for_selector(".foo")
 except TimeoutError as e:
-    # do something if this is a timeout.
+  pass
+  # do something if this is a timeout.
 ```
 
 ## property: Playwright.firefox
@@ -240,3 +242,52 @@ Selectors can be used to install custom selector engines. See
 - type: <[BrowserType]>
 
 This object can be used to launch or connect to WebKit, returning instances of [Browser].
+
+## method: Playwright.close
+* since: v1.9
+* langs: java
+
+Terminates this instance of Playwright, will also close all created browsers if they are still running.
+
+## method: Playwright.create
+* since: v1.10
+* langs: java
+- returns: <[Playwright]>
+
+Launches new Playwright driver process and connects to it. [`method: Playwright.close`] should be called when the instance is no longer needed.
+
+```java
+Playwright playwright = Playwright.create();
+Browser browser = playwright.webkit().launch();
+Page page = browser.newPage();
+page.navigate("https://www.w3.org/");
+playwright.close();
+```
+
+### option: Playwright.create.env
+* since: v1.13
+* langs: java
+- `env` <[Object]<[string], [string]>>
+
+Additional environment variables that will be passed to the driver process. By default driver
+process inherits environment variables of the Playwright process.
+
+## async method: Playwright.stop
+* since: v1.8
+* langs: python
+
+Terminates this instance of Playwright in case it was created bypassing the Python context manager. This is useful in REPL applications.
+
+```py
+from playwright.sync_api import sync_playwright
+
+playwright = sync_playwright().start()
+
+browser = playwright.chromium.launch()
+page = browser.new_page()
+page.goto("https://playwright.dev/")
+page.screenshot(path="example.png")
+browser.close()
+
+playwright.stop()
+```

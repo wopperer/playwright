@@ -41,7 +41,7 @@ export type Browser = {
 };
 
 export type Page = {
-  startedDateTime: Date;
+  startedDateTime: string;
   id: string;
   title: string;
   pageTimings: PageTimings;
@@ -56,7 +56,7 @@ export type PageTimings = {
 
 export type Entry = {
   pageref?: string;
-  startedDateTime: Date;
+  startedDateTime: string;
   time: number;
   request: Request;
   response: Response;
@@ -68,6 +68,10 @@ export type Entry = {
   _monotonicTime?: number;
   _serverPort?: number;
   _securityDetails?: SecurityDetails;
+  _wasAborted?: boolean;
+  _wasFulfilled?: boolean;
+  _wasContinued?: boolean;
+  _apiRequest?: boolean;
 };
 
 export type Request = {
@@ -103,7 +107,7 @@ export type Cookie = {
   value: string;
   path?: string;
   domain?: string;
-  expires?: Date;
+  expires?: string;
   httpOnly?: boolean;
   secure?: boolean;
   sameSite?: string;

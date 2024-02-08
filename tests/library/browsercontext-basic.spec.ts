@@ -15,8 +15,10 @@
  * limitations under the License.
  */
 
+import { kTargetClosedErrorMessage } from '../config/errors';
 import { browserTest as it, expect } from '../config/browserTest';
 import { attachFrame, verifyViewport } from '../config/utils';
+import type { Page } from '@playwright/test';
 
 it('should create new context @smoke', async function({ browser }) {
   expect(browser.contexts().length).toBe(0);
@@ -129,7 +131,7 @@ it('close() should abort waitForEvent', async ({ browser }) => {
   const promise = context.waitForEvent('page').catch(e => e);
   await context.close();
   const error = await promise;
-  expect(error.message).toContain('Context closed');
+  expect(error.message).toContain(kTargetClosedErrorMessage);
 });
 
 it('close() should be callable twice', async ({ browser }) => {
@@ -153,7 +155,7 @@ it('should not report frameless pages on error', async ({ browser, server }) => 
   server.setRoute('/empty.html', (req, res) => {
     res.end(`<a href="${server.EMPTY_PAGE}" target="_blank">Click me</a>`);
   });
-  let popup;
+  let popup: Page | undefined;
   context.on('page', p => popup = p);
   await page.goto(server.EMPTY_PAGE);
   await page.click('"Click me"');
@@ -193,9 +195,9 @@ it('should disable javascript', async ({ browser, browserName }) => {
     let error = null;
     await page.evaluate('something').catch(e => error = e);
     if (browserName === 'webkit')
-      expect(error.message).toContain('Can\'t find variable: something');
+      expect(error!.message).toContain('Can\'t find variable: something');
     else
-      expect(error.message).toContain('something is not defined');
+      expect(error!.message).toContain('something is not defined');
     await context.close();
   }
 
@@ -223,15 +225,33 @@ it('should not hang on promises after disabling javascript', async ({ browserNam
   expect(await page.evaluate(async () => 2)).toBe(2);
 });
 
-it('should work with offline option', async ({ browser, server }) => {
+it('setContent should work after disabling javascript', async ({ contextFactory }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/18235' });
+  const context = await contextFactory({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  await page.setContent('<h1>Hello</h1>');
+  await expect(page.locator('h1')).toHaveText('Hello');
+});
+
+it('should work with offline option', async ({ browser, server, browserName }) => {
   const context = await browser.newContext({ offline: true });
   const page = await context.newPage();
   let error = null;
-  await page.goto(server.EMPTY_PAGE).catch(e => error = e);
+  if (browserName === 'firefox') {
+    // Firefox navigates to an error page, and this navigation might conflict with the
+    // next navigation we do in test.
+    // So we need to wait for the navigation explicitly.
+    await Promise.all([
+      page.goto(server.EMPTY_PAGE).catch(e => error = e),
+      page.waitForEvent('framenavigated'),
+    ]);
+  } else {
+    await page.goto(server.EMPTY_PAGE).catch(e => error = e);
+  }
   expect(error).toBeTruthy();
   await context.setOffline(false);
   const response = await page.goto(server.EMPTY_PAGE);
-  expect(response.status()).toBe(200);
+  expect(response!.status()).toBe(200);
   await context.close();
 });
 
@@ -279,4 +299,10 @@ it('should emulate media in cross-process iframe', async ({ browser, server }) =
   const frame = page.frames()[1];
   expect(await frame.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)).toBe(true);
   await page.close();
+});
+
+it('default user agent', async ({ launchPersistent, browser, page, mode }) => {
+  it.skip(mode !== 'default');
+  const { userAgent } = await (browser as any)._channel.defaultUserAgentForTest();
+  expect(await page.evaluate(() => navigator.userAgent)).toBe(userAgent);
 });

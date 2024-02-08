@@ -63,9 +63,12 @@ it('should be able to capture alert', async ({ page }) => {
     const win = window.open('');
     win.alert('hello');
   });
-  const popup = await page.waitForEvent('popup');
-  const dialog = await popup.waitForEvent('dialog');
+  const [popup, dialog] = await Promise.all([
+    page.waitForEvent('popup'),
+    page.context().waitForEvent('dialog'),
+  ]);
   expect(dialog.message()).toBe('hello');
+  expect(dialog.page()).toBe(popup);
   await dialog.dismiss();
   await evaluatePromise;
 });
@@ -118,6 +121,7 @@ it('should work with clicking target=_blank', async ({ page, server }) => {
   ]);
   expect(await page.evaluate(() => !!window.opener)).toBe(false);
   expect(await popup.evaluate(() => !!window.opener)).toBe(true);
+  expect(popup.mainFrame().page()).toBe(popup);
 });
 
 it('should work with fake-clicking target=_blank and rel=noopener', async ({ page, server }) => {

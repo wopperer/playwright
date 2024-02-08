@@ -14,23 +14,43 @@
   limitations under the License.
 */
 
-import type { Language } from '../../playwright-core/src/server/isomorphic/locatorGenerators';
+import type { Language } from '../../playwright-core/src/utils/isomorphic/locatorGenerators';
 
-export type Point = { x: number, y: number };
+export type Point = { x: number; y: number };
 
-export type Mode = 'inspecting' | 'recording' | 'none';
+export type Mode =
+  | 'inspecting'
+  | 'recording'
+  | 'none'
+  | 'assertingText'
+  | 'recording-inspecting'
+  | 'standby'
+  | 'assertingVisibility'
+  | 'assertingValue';
 
 export type EventData = {
-  event: 'clear' | 'resume' | 'step' | 'pause' | 'setMode' | 'selectorUpdated' | 'fileChanged';
+  event:
+    | 'clear'
+    | 'resume'
+    | 'step'
+    | 'pause'
+    | 'setMode'
+    | 'selectorUpdated'
+    | 'fileChanged';
   params: any;
+};
+
+export type OverlayState = {
+  offsetX: number;
 };
 
 export type UIState = {
   mode: Mode;
   actionPoint?: Point;
   actionSelector?: string;
-  language: 'javascript' | 'python' | 'java' | 'csharp';
+  language: Language;
   testIdAttributeName: string;
+  overlay: OverlayState;
 };
 
 export type CallLogStatus = 'in-progress' | 'done' | 'error' | 'paused';
@@ -44,8 +64,8 @@ export type CallLog = {
   reveal?: boolean;
   duration?: number;
   params: {
-    url?: string,
-    selector?: string,
+    url?: string;
+    selector?: string;
   };
 };
 
@@ -74,6 +94,7 @@ declare global {
     playwrightSetMode: (mode: Mode) => void;
     playwrightSetPaused: (paused: boolean) => void;
     playwrightSetSources: (sources: Source[]) => void;
+    playwrightSetOverlayVisible: (visible: boolean) => void;
     playwrightUpdateLogs: (callLogs: CallLog[]) => void;
     playwrightSetFileIfNeeded: (file: string) => void;
     playwrightSetSelector: (selector: string, focus?: boolean) => void;

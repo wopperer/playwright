@@ -3,6 +3,8 @@ id: events
 title: "Events"
 ---
 
+## Introduction
+
 Playwright allows listening to various types of events happening on the web page, such as network requests, creation of child pages, dedicated workers etc. There are several ways to subscribe to such events such as waiting for events or adding or removing event listeners.
 
 ## Waiting for event
@@ -163,7 +165,7 @@ await page.GotoAsync("https://www.openstreetmap.org/");
 If a certain event needs to be handled once, there is a convenience API for that:
 
 ```js
-page.once('dialog', dialog => dialog.accept("2021"));
+page.once('dialog', dialog => dialog.accept('2021'));
 await page.evaluate("prompt('Enter a number:')");
 ```
 

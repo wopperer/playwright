@@ -3,6 +3,8 @@ id: input
 title: "Actions"
 ---
 
+## Introduction
+
 Playwright can interact with HTML Input elements such as text inputs, checkboxes, radio buttons, select options, mouse clicks, type characters, keys and shortcuts as well as upload files and focus elements.
 
 ## Text input
@@ -88,7 +90,7 @@ Using [`method: Locator.setChecked`] is the easiest way to check and uncheck a c
 await page.getByLabel('I agree to the terms above').check();
 
 // Assert the checked state
-expect(await page.getByLabel('Subscribe to newsletter').isChecked()).toBeTruthy()
+expect(page.getByLabel('Subscribe to newsletter')).toBeChecked();
 
 // Select the radio button
 await page.getByLabel('XL').check();
@@ -99,7 +101,7 @@ await page.getByLabel('XL').check();
 page.getByLabel("I agree to the terms above").check();
 
 // Assert the checked state
-assertTrue(page.getByLabel("Subscribe to newsletter").isChecked());
+assertTrue(page.getByLabel("Subscribe to newsletter")).isChecked();
 
 // Select the radio button
 page.getByLabel("XL").check();
@@ -110,7 +112,7 @@ page.getByLabel("XL").check();
 await page.get_by_label('I agree to the terms above').check()
 
 # Assert the checked state
-assert await page.get_by_label('Subscribe to newsletter').is_checked() is True
+await expect(page.get_by_label('Subscribe to newsletter')).to_be_checked()
 
 # Select the radio button
 await page.get_by_label('XL').check()
@@ -121,7 +123,7 @@ await page.get_by_label('XL').check()
 page.get_by_label('I agree to the terms above').check()
 
 # Assert the checked state
-assert page.get_by_label('Subscribe to newsletter').is_checked() is True
+expect(page.get_by_label('Subscribe to newsletter')).to_be_checked()
 
 # Select the radio button
 page.get_by_label('XL').check()
@@ -132,7 +134,7 @@ page.get_by_label('XL').check()
 await page.GetByLabel("I agree to the terms above").CheckAsync();
 
 // Assert the checked state
-Assert.True(await page.GetByLabel("Subscribe to newsletter").IsCheckedAsync());
+await Expect(page.GetByLabel("Subscribe to newsletter")).ToBeCheckedAsync();
 
 // Select the radio button
 await page.GetByLabel("XL").CheckAsync();
@@ -144,7 +146,7 @@ Selects one or multiple options in the `<select>` element with [`method: Locator
 You can specify option `value`, or `label` to select. Multiple options can be selected.
 
 ```js
-// Single selection matching the value
+// Single selection matching the value or label
 await page.getByLabel('Choose a color').selectOption('blue');
 
 // Single selection matching the label
@@ -155,7 +157,7 @@ await page.getByLabel('Choose multiple colors').selectOption(['red', 'green', 'b
 ```
 
 ```java
-// Single selection matching the value
+// Single selection matching the value or label
 page.getByLabel("Choose a color").selectOption("blue");
 
 // Single selection matching the label
@@ -166,7 +168,7 @@ page.getByLabel("Choose multiple colors").selectOption(new String[] {"red", "gre
 ```
 
 ```python async
-# Single selection matching the value
+# Single selection matching the value or label
 await page.get_by_label('Choose a color').select_option('blue')
 
 # Single selection matching the label
@@ -177,7 +179,7 @@ await page.get_by_label('Choose multiple colors').select_option(['red', 'green',
 ```
 
 ```python sync
-# Single selection matching the value
+# Single selection matching the value or label
 page.get_by_label('Choose a color').select_option('blue')
 
 # Single selection matching the label
@@ -188,11 +190,11 @@ page.get_by_label('Choose multiple colors').select_option(['red', 'green', 'blue
 ```
 
 ```csharp
-// Single selection matching the value
+// Single selection matching the value or label
 await page.GetByLabel("Choose a color").SelectOptionAsync("blue");
 
 // Single selection matching the label
-await page.GetByLabel("Choose a color").SelectOptionAsync(new SelectOptionValue { Label = "blue" }));
+await page.GetByLabel("Choose a color").SelectOptionAsync(new SelectOptionValue { Label = "blue" });
 
 // Multiple selected items
 await page.GetByLabel("Choose multiple colors").SelectOptionAsync(new[] { "blue", "green", "red" });
@@ -219,7 +221,7 @@ await page.getByText('Item').click({ modifiers: ['Shift'] });
 await page.getByText('Item').hover();
 
 // Click the top left corner
-await page.getByText('Item').click({ position: { x: 0, y: 0} });
+await page.getByText('Item').click({ position: { x: 0, y: 0 } });
 ```
 
 ```java
@@ -361,38 +363,38 @@ await page.GetByRole(AriaRole.Button).DispatchEventAsync("click");
 
 ## Type characters
 
-Type into the field character by character, as if it was a user with a real keyboard with [`method: Locator.type`].
+:::caution
+Most of the time, you should input text with [`method: Locator.fill`]. See the [Text input](#text-input) section above. You only need to type characters if there is special keyboard handling on the page.
+:::
+
+Type into the field character by character, as if it was a user with a real keyboard with [`method: Locator.pressSequentially`].
 
 ```js
-// Type character by character
-await page.locator('#area').type('Hello World!');
+// Press keys one by one
+await page.locator('#area').pressSequentially('Hello World!');
 ```
 
 ```java
-// Type character by character
-page.locator("#area").type("Hello World!");
+// Press keys one by one
+page.locator("#area").pressSequentially("Hello World!");
 ```
 
 ```python async
-# Type character by character
-await page.locator('#area').type('Hello World!')
+# Press keys one by one
+await page.locator('#area').pressSequentially('Hello World!')
 ```
 
 ```python sync
-# Type character by character
-page.locator('#area').type('Hello World!')
+# Press keys one by one
+page.locator('#area').pressSequentially('Hello World!')
 ```
 
 ```csharp
-// Type character by character
+// Press keys one by one
 await page.Locator("#area").TypeAsync("Hello World!");
 ```
 
 This method will emit all the necessary keyboard events, with all the `keydown`, `keyup`, `keypress` events in place. You can even specify the optional `delay` between the key presses to simulate real user behavior.
-
-:::note
-Most of the time, [`method: Page.fill`] will just work. You only need to type characters if there is special keyboard handling on the page.
-:::
 
 ## Keys and shortcuts
 
@@ -453,7 +455,7 @@ await page.GetByRole(AriaRole.Textbox).PressAsync("$");
 
 The [`method: Locator.press`] method focuses the selected element and produces a single keystroke. It accepts the logical key names that are emitted in the [keyboardEvent.key](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/key) property of the keyboard events:
 
-```
+```txt
 Backquote, Minus, Equal, Backslash, Backspace, Tab, Delete, Escape,
 ArrowDown, End, Enter, Home, Insert, PageDown, PageUp, ArrowRight,
 ArrowUp, F1 - F12, Digit0 - Digit9, KeyA - KeyZ, etc.
@@ -516,10 +518,13 @@ You can select input files for upload using the [`method: Locator.setInputFiles`
 
 ```js
 // Select one file
-await page.getByLabel('Upload file').setInputFiles('myfile.pdf');
+await page.getByLabel('Upload file').setInputFiles(path.join(__dirname, 'myfile.pdf'));
 
 // Select multiple files
-await page.getByLabel('Upload files').setInputFiles(['file1.txt', 'file2.txt']);
+await page.getByLabel('Upload files').setInputFiles([
+  path.join(__dirname, 'file1.txt'),
+  path.join(__dirname, 'file2.txt'),
+]);
 
 // Remove all the selected files
 await page.getByLabel('Upload file').setInputFiles([]);
@@ -610,7 +615,7 @@ or use a corresponding waiting method upon your action:
 const fileChooserPromise = page.waitForEvent('filechooser');
 await page.getByLabel('Upload file').click();
 const fileChooser = await fileChooserPromise;
-await fileChooser.setFiles('myfile.pdf');
+await fileChooser.setFiles(path.join(__dirname, 'myfile.pdf'));
 ```
 
 ```java

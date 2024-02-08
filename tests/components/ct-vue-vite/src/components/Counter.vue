@@ -1,10 +1,10 @@
 <template>
-  <div @click="$emit('submit', 'hello')">
-    <div id="props">{{ count }}</div>
-    <div id="remount-count">{{ remountCount }}</div>
+  <button @click="$emit('submit', 'hello')">
+    <span data-testid="props">{{ count }}</span>
+    <span data-testid="remount-count">{{ remountCount }}</span>
     <slot name="main" />
     <slot />
-  </div>
+  </button>
 </template>
 
 <script lang="ts">

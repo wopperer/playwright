@@ -14,13 +14,23 @@
   limitations under the License.
 */
 
-.network-tab {
-  display: flex;
-  flex-direction: column;
-  flex: auto;
-  overflow: auto;
+.network-request-status-route {
+  color: var(--vscode-statusBar-foreground);
+  background-color: var(--vscode-statusBar-background);
 }
 
-.network-tab:focus {
-  outline: none;
+.network-request-status-route.api {
+  color: var(--vscode-statusBar-foreground);
+  background-color: var(--vscode-statusBarItem-remoteBackground);
+}
+
+.network-grid-view .grid-view-column-method,
+.network-grid-view .grid-view-column-status {
+  text-align: center;  
+}
+
+.network-grid-view .grid-view-column-duration,
+.network-grid-view .grid-view-column-size,
+.network-grid-view .grid-view-column-start {
+  text-align: end;
 }

@@ -1,9 +1,11 @@
 ---
 id: other-locators
-title: "Other Locators"
+title: "Other locators"
 ---
 
-:::tip
+## Introduction
+
+:::note
 Check out the main [locators guide](./locators) for most common and recommended locators.
 :::
 
@@ -432,84 +434,61 @@ await page.Locator("button").Locator("nth=-1").ClickAsync();
 
 ## Parent element locator
 
-The parent element could be selected with `..`, which is a short form for `xpath=..`.
+When you need to target a parent element of some other element, most of the time you should [`method: Locator.filter`] by the child locator. For example, consider the following DOM structure:
 
-For example:
+```html
+<li><label>Hello</label></li>
+<li><label>World</label></li>
+```
+
+If you'd like to target the parent `<li>` of a label with text `"Hello"`, using [`method: Locator.filter`] works best:
 
 ```js
-const parentLocator = page.getByRole('button').locator('..');
+const child = page.getByText('Hello');
+const parent = page.getByRole('listitem').filter({ has: child });
 ```
 
 ```java
-Locator parentLocator = page.getByRole(AriaRole.BUTTON).locator("..");
+Locator child = page.getByText("Hello");
+Locator parent = page.getByRole(AriaRole.LISTITEM).filter(new Locator.FilterOptions().setHas(child));
 ```
 
 ```python async
-parent_locator = page.get_by_role("button").locator('..')
+child = page.get_by_text("Hello")
+parent = page.get_by_role("listitem").filter(has=child)
 ```
 
 ```python sync
-parent_locator = page.get_by_role("button").locator('..')
+child = page.get_by_text("Hello")
+parent = page.get_by_role("listitem").filter(has=child)
 ```
 
 ```csharp
-var parentLocator = page.GetByRole(AriaRole.Button).Locator("..");
+var child = page.GetByText("Hello");
+var parent = page.GetByRole(AriaRole.Listitem).Filter(new () { Has = child });
 ```
 
+Alternatively, if you cannot find a suitable locator for the parent element, use `xpath=..`. Note that this method is not as reliable, because any changes to the DOM structure will break your tests. Prefer [`method: Locator.filter`] when possible.
 
-### Locating only visible elements
-
-:::note
-It's usually better to find a [more reliable way](./locators.md#quick-guide) to uniquely identify the element instead of checking the visibility.
-:::
-
-Consider a page with two buttons, first invisible and second [visible](./actionability.md#visible).
-
-```html
-<button style='display: none'>Invisible</button>
-<button>Visible</button>
+```js
+const parent = page.getByText('Hello').locator('xpath=..');
 ```
 
-* This will find both buttons and throw a [strictness](./locators.md#strictness) violation error:
+```java
+Locator parent = page.getByText("Hello").locator("xpath=..");
+```
 
-  ```js
-  await page.locator('button').click();
-  ```
+```python async
+parent = page.get_by_text("Hello").locator('xpath=..')
+```
 
-  ```java
-  page.locator("button").click();
-  ```
+```python sync
+parent = page.get_by_text("Hello").locator('xpath=..')
+```
 
-  ```python async
-  await page.locator("button").click()
-  ```
-
-  ```python sync
-  page.locator("button").click()
-  ```
-
-  ```csharp
-  await page.Locator("button").ClickAsync();
-  ```
-
-* This will only find a second button, because it is visible, and then click it.
-
-  ```js
-  await page.locator('button').locator('visible=true').click();
-  ```
-  ```java
-  page.locator("button").locator("visible=true").click();
-  ```
-  ```python async
-  await page.locator("button").locator("visible=true").click()
-  ```
-  ```python sync
-  page.locator("button").locator("visible=true").click()
-  ```
-  ```csharp
-  await page.Locator("button").Locator("visible=true").ClickAsync();
-  ```
-
+```csharp
+var parent = page.GetByText("Hello").Locator("xpath=..");
+```
 
 ## React locator
 
@@ -655,7 +634,9 @@ elements that can be selected by one of the selectors in that list.
 
 ```js
 // Waits for either confirmation dialog or load spinner.
-await page.locator(`//span[contains(@class, 'spinner__loading')]|//div[@id='confirmation']`).waitFor();
+await page.locator(
+    `//span[contains(@class, 'spinner__loading')]|//div[@id='confirmation']`
+).waitFor();
 ```
 
 ```java
@@ -745,7 +726,7 @@ expect(page.locator("label")).to_have_text("Password")
 
 ```csharp
 // Fill the input by targeting the label.
-await Expect(page.Locator("label")).ToHaveTextAsync("Password");
+await Expect(Page.Locator("label")).ToHaveTextAsync("Password");
 ```
 
 ## Legacy text locator
@@ -911,22 +892,24 @@ Attribute selectors pierce shadow DOM. To opt-out from this behavior, use `:ligh
 ## Chaining selectors
 
 :::warning
-We recommend [chaining locators](./locators.md#chaining-locators) instead.
+We recommend [chaining locators](./locators.md#matching-inside-a-locator) instead.
 :::
 
 Selectors defined as `engine=body` or in short-form can be combined with the `>>` token, e.g. `selector1 >> selector2 >> selectors3`. When selectors are chained, the next one is queried relative to the previous one's result.
 
 For example,
-```
+
+```txt
 css=article >> css=.bar > .baz >> css=span[attr=value]
 ```
+
 is equivalent to
 
 ```js browser
 document
-  .querySelector('article')
-  .querySelector('.bar > .baz')
-  .querySelector('span[attr=value]')
+    .querySelector('article')
+    .querySelector('.bar > .baz')
+    .querySelector('span[attr=value]');
 ```
 
 If a selector needs to include `>>` in the body, it should be escaped inside a string to not be confused with chaining separator, e.g. `text="some >> text"`.
@@ -934,7 +917,7 @@ If a selector needs to include `>>` in the body, it should be escaped inside a s
 ### Intermediate matches
 
 :::warning
-We recommend [filtering by another locator](./locators.md#filter-by-another-locator) to locate elements that contain other elements.
+We recommend [filtering by another locator](./locators.md#filter-by-childdescendant) to locate elements that contain other elements.
 :::
 
 By default, chained selectors resolve to an element queried by the last selector. A selector can be prefixed with `*` to capture elements that are queried by an intermediate selector.

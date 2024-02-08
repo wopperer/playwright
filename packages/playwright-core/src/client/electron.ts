@@ -26,14 +26,17 @@ import { envObjectToArray } from './clientHelper';
 import { Events } from './events';
 import { JSHandle, parseResult, serializeArgument } from './jsHandle';
 import type { Page } from './page';
+import { ConsoleMessage } from './consoleMessage';
 import type { Env, WaitForEventOptions, Headers, BrowserContextOptions } from './types';
 import { Waiter } from './waiter';
+import { TargetClosedError } from './errors';
 
-type ElectronOptions = Omit<channels.ElectronLaunchOptions, 'env'|'extraHTTPHeaders'|'recordHar'|'colorScheme'> & {
+type ElectronOptions = Omit<channels.ElectronLaunchOptions, 'env'|'extraHTTPHeaders'|'recordHar'|'colorScheme'|'acceptDownloads'> & {
   env?: Env,
   extraHTTPHeaders?: Headers,
   recordHar?: BrowserContextOptions['recordHar'],
   colorScheme?: 'dark' | 'light' | 'no-preference' | null,
+  acceptDownloads?: boolean,
 };
 
 type ElectronAppType = typeof import('electron');
@@ -51,6 +54,7 @@ export class Electron extends ChannelOwner<channels.ElectronChannel> implements 
     const params: channels.ElectronLaunchParams = {
       ...await prepareBrowserContextParams(options),
       env: envObjectToArray(options.env ? options.env : process.env),
+      tracesDir: options.tracesDir,
     };
     const app = ElectronApplication.from((await this._channel.launch(params)).electronApplication);
     app._context._options = params;
@@ -78,6 +82,10 @@ export class ElectronApplication extends ChannelOwner<channels.ElectronApplicati
       this._isClosed = true;
       this.emit(Events.ElectronApplication.Close);
     });
+    this._channel.on('console', event => this.emit(Events.ElectronApplication.Console, new ConsoleMessage(event)));
+    this._setEventToSubscriptionMapping(new Map<string, channels.ElectronApplicationUpdateSubscriptionParams['event']>([
+      [Events.ElectronApplication.Console, 'console'],
+    ]));
   }
 
   process(): childProcess.ChildProcess {
@@ -91,18 +99,22 @@ export class ElectronApplication extends ChannelOwner<channels.ElectronApplicati
   }
 
   windows(): Page[] {
-    // TODO: add ElectronPage class inherting from Page.
+    // TODO: add ElectronPage class inheriting from Page.
     return [...this._windows];
   }
 
-  async firstWindow(): Promise<Page> {
+  async firstWindow(options?: { timeout?: number }): Promise<Page> {
     if (this._windows.size)
       return this._windows.values().next().value;
-    return this.waitForEvent('window');
+    return await this.waitForEvent('window', options);
   }
 
   context(): BrowserContext {
     return this._context;
+  }
+
+  async [Symbol.asyncDispose]() {
+    await this.close();
   }
 
   async close() {
@@ -112,13 +124,13 @@ export class ElectronApplication extends ChannelOwner<channels.ElectronApplicati
   }
 
   async waitForEvent(event: string, optionsOrPredicate: WaitForEventOptions = {}): Promise<any> {
-    return this._wrapApiCall(async () => {
+    return await this._wrapApiCall(async () => {
       const timeout = this._timeoutSettings.timeout(typeof optionsOrPredicate === 'function' ? {} : optionsOrPredicate);
       const predicate = typeof optionsOrPredicate === 'function' ? optionsOrPredicate : optionsOrPredicate.predicate;
       const waiter = Waiter.createForEvent(this, event);
       waiter.rejectOnTimeout(timeout, `Timeout ${timeout}ms exceeded while waiting for event "${event}"`);
       if (event !== Events.ElectronApplication.Close)
-        waiter.rejectOnEvent(this, Events.ElectronApplication.Close, new Error('Electron application closed'));
+        waiter.rejectOnEvent(this, Events.ElectronApplication.Close, () => new TargetClosedError());
       const result = await waiter.waitForEvent(this, event, predicate as any);
       waiter.dispose();
       return result;

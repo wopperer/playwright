@@ -23,10 +23,11 @@ import type { CRSession } from '../chromium/crConnection';
 import { CRConnection } from '../chromium/crConnection';
 import type { CRPage } from '../chromium/crPage';
 import { CRExecutionContext } from '../chromium/crExecutionContext';
+import type { Protocol } from '../chromium/protocol';
 import * as js from '../javascript';
 import type { Page } from '../page';
 import { TimeoutSettings } from '../../common/timeoutSettings';
-import { wrapInASCIIBox } from '../../utils';
+import { ManualPromise, wrapInASCIIBox } from '../../utils';
 import { WebSocketTransport } from '../transport';
 import { launchProcess, envArrayToObject } from '../../utils/processLauncher';
 import { BrowserContext, validateBrowserContextOptions } from '../browserContext';
@@ -35,25 +36,29 @@ import type { Progress } from '../progress';
 import { ProgressController } from '../progress';
 import { helper } from '../helper';
 import { eventsHelper } from '../../utils/eventsHelper';
-import type { BrowserOptions, BrowserProcess, PlaywrightOptions } from '../browser';
+import type { BrowserOptions, BrowserProcess } from '../browser';
+import type { Playwright } from '../playwright';
 import type * as childProcess from 'child_process';
 import * as readline from 'readline';
-import { RecentLogsCollector } from '../../common/debugLogger';
+import { RecentLogsCollector } from '../../utils/debugLogger';
 import { serverSideCallMetadata, SdkObject } from '../instrumentation';
 import type * as channels from '@protocol/channels';
+import { toConsoleMessageLocation } from '../chromium/crProtocolHelper';
+import { ConsoleMessage } from '../console';
 
 const ARTIFACTS_FOLDER = path.join(os.tmpdir(), 'playwright-artifacts-');
 
 export class ElectronApplication extends SdkObject {
   static Events = {
     Close: 'close',
+    Console: 'console',
   };
 
   private _browserContext: CRBrowserContext;
   private _nodeConnection: CRConnection;
   private _nodeSession: CRSession;
   private _nodeExecutionContext: js.ExecutionContext | undefined;
-  _nodeElectronHandlePromise: Promise<js.JSHandle<any>>;
+  _nodeElectronHandlePromise: ManualPromise<js.JSHandle<typeof import('electron')>> = new ManualPromise();
   readonly _timeoutSettings = new TimeoutSettings();
   private _process: childProcess.ChildProcess;
 
@@ -67,18 +72,49 @@ export class ElectronApplication extends SdkObject {
     });
     this._nodeConnection = nodeConnection;
     this._nodeSession = nodeConnection.rootSession;
-    this._nodeElectronHandlePromise = new Promise(f => {
-      this._nodeSession.on('Runtime.executionContextCreated', async (event: any) => {
-        if (event.context.auxData && event.context.auxData.isDefault) {
-          this._nodeExecutionContext = new js.ExecutionContext(this, new CRExecutionContext(this._nodeSession, event.context));
-          f(await js.evaluate(this._nodeExecutionContext, false /* returnByValue */, `process.mainModule.require('electron')`));
-        }
+    this._nodeSession.on('Runtime.executionContextCreated', async (event: Protocol.Runtime.executionContextCreatedPayload) => {
+      if (!event.context.auxData || !event.context.auxData.isDefault)
+        return;
+      const crExecutionContext = new CRExecutionContext(this._nodeSession, event.context);
+      this._nodeExecutionContext = new js.ExecutionContext(this, crExecutionContext, 'electron');
+      const { result: remoteObject } = await crExecutionContext._client.send('Runtime.evaluate', {
+        expression: `require('electron')`,
+        contextId: event.context.id,
+        // Needed after Electron 28 to get access to require: https://github.com/microsoft/playwright/issues/28048
+        includeCommandLineAPI: true,
       });
+      this._nodeElectronHandlePromise.resolve(new js.JSHandle(this._nodeExecutionContext!, 'object', 'ElectronModule', remoteObject.objectId!));
     });
+    this._nodeSession.on('Runtime.consoleAPICalled', event => this._onConsoleAPI(event));
     this._browserContext.setCustomCloseHandler(async () => {
+      await this._browserContext.stopVideoRecording();
       const electronHandle = await this._nodeElectronHandlePromise;
       await electronHandle.evaluate(({ app }) => app.quit()).catch(() => {});
     });
+  }
+
+  async _onConsoleAPI(event: Protocol.Runtime.consoleAPICalledPayload) {
+    if (event.executionContextId === 0) {
+      // DevTools protocol stores the last 1000 console messages. These
+      // messages are always reported even for removed execution contexts. In
+      // this case, they are marked with executionContextId = 0 and are
+      // reported upon enabling Runtime agent.
+      //
+      // Ignore these messages since:
+      // - there's no execution context we can use to operate with message
+      //   arguments
+      // - these messages are reported before Playwright clients can subscribe
+      //   to the 'console'
+      //   page event.
+      //
+      // @see https://github.com/GoogleChrome/puppeteer/issues/3865
+      return;
+    }
+    if (!this._nodeExecutionContext)
+      return;
+    const args = event.args.map(arg => this._nodeExecutionContext!.createHandle(arg));
+    const message = new ConsoleMessage(null, event.type, undefined, args, toConsoleMessageLocation(event.stackTrace));
+    this.emit(ElectronApplication.Events.Console, message);
   }
 
   async initialize() {
@@ -98,7 +134,7 @@ export class ElectronApplication extends SdkObject {
   async close() {
     const progressController = new ProgressController(serverSideCallMetadata(), this);
     const closed = progressController.run(progress => helper.waitForEvent(progress, this, ElectronApplication.Events.Close).promise);
-    await this._browserContext.close(serverSideCallMetadata());
+    await this._browserContext.close({ reason: 'Application exited' });
     this._nodeConnection.close();
     await closed;
   }
@@ -109,17 +145,14 @@ export class ElectronApplication extends SdkObject {
     const electronHandle = await this._nodeElectronHandlePromise;
     return await electronHandle.evaluateHandle(({ BrowserWindow, webContents }, targetId) => {
       const wc = webContents.fromDevToolsTargetId(targetId);
-      return BrowserWindow.fromWebContents(wc);
+      return BrowserWindow.fromWebContents(wc!)!;
     }, targetId);
   }
 }
 
 export class Electron extends SdkObject {
-  private _playwrightOptions: PlaywrightOptions;
-
-  constructor(playwrightOptions: PlaywrightOptions) {
-    super(playwrightOptions.rootSdkObject, 'electron');
-    this._playwrightOptions = playwrightOptions;
+  constructor(playwright: Playwright) {
+    super(playwright, 'electron');
   }
 
   async launch(options: channels.ElectronLaunchParams): Promise<ElectronApplication> {
@@ -130,12 +163,13 @@ export class Electron extends SdkObject {
     controller.setLogName('browser');
     return controller.run(async progress => {
       let app: ElectronApplication | undefined = undefined;
-      const electronArguments = ['-r', require.resolve('./loader'), '--inspect=0', '--remote-debugging-port=0', ...args];
+      // --remote-debugging-port=0 must be the last playwright's argument, loader.ts relies on it.
+      const electronArguments = ['--inspect=0', '--remote-debugging-port=0', ...args];
 
       if (os.platform() === 'linux') {
         const runningAsRoot = process.geteuid && process.geteuid() === 0;
         if (runningAsRoot && electronArguments.indexOf('--no-sandbox') === -1)
-          electronArguments.push('--no-sandbox');
+          electronArguments.unshift('--no-sandbox');
       }
 
       const artifactsDir = await fs.promises.mkdtemp(ARTIFACTS_FOLDER);
@@ -160,6 +194,9 @@ export class Electron extends SdkObject {
           }
           throw error;
         }
+        // Only use our own loader for non-packaged apps.
+        // Packaged apps might have their own command line handling.
+        electronArguments.unshift('-r', require.resolve('./loader'));
       }
 
       // When debugging Playwright test that runs Electron, NODE_OPTIONS
@@ -220,7 +257,6 @@ export class Electron extends SdkObject {
         noDefaultViewport: true,
       };
       const browserOptions: BrowserOptions = {
-        ...this._playwrightOptions,
         name: 'electron',
         isChromium: true,
         headful: true,
@@ -230,15 +266,15 @@ export class Electron extends SdkObject {
         browserLogsCollector,
         artifactsDir,
         downloadsPath: artifactsDir,
-        tracesDir: artifactsDir,
+        tracesDir: options.tracesDir || artifactsDir,
         originalLaunchOptions: {},
       };
       validateBrowserContextOptions(contextOptions, browserOptions);
-      const browser = await CRBrowser.connect(chromeTransport, browserOptions);
+      const browser = await CRBrowser.connect(this.attribution.playwright, chromeTransport, browserOptions);
       app = new ElectronApplication(this, browser, nodeConnection, launchedProcess);
       await app.initialize();
       return app;
-    }, TimeoutSettings.timeout(options));
+    }, TimeoutSettings.launchTimeout(options));
   }
 }
 

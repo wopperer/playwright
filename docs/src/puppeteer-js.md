@@ -3,8 +3,6 @@ id: puppeteer
 title: "Migrating from Puppeteer"
 ---
 
-<!-- TOC -->
-
 ## Migration Principles
 
 This guide describes migration to [Playwright Library](./library) and [Playwright Test](./intro.md) from Puppeteer. The APIs have similarities, but Playwright offers much more possibilities for web testing and cross-browser automation.
@@ -34,7 +32,7 @@ This guide describes migration to [Playwright Library](./library) and [Playwrigh
 | `await page.hover(selector)`                       | `await page.locator(selector).hover()`      |
 | `await page.select(selector, values)`              | `await page.locator(selector).selectOption(values)` |
 | `await page.tap(selector)`                         | `await page.locator(selector).tap()`        |
-| `await page.type(selector, ...)`                   | `await page.locator(selector).type(...)`<br/> Please also consider [`method: Locator.fill`] |
+| `await page.type(selector, ...)`                   | `await page.locator(selector).fill(...)` |
 | `await page.waitForFileChooser(...)`<br/>`await elementHandle.uploadFile(...)` | `await page.locator(selector).setInputFiles(...)` |
 | `await page.cookies([...urls])`                    | `await browserContext.cookies([urls])`      |
 | `await page.deleteCookie(...cookies)`              | `await browserContext.clearCookies()`       |
@@ -60,7 +58,7 @@ const puppeteer = require('puppeteer');
   const browser = await puppeteer.launch();
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 800 });
-  await page.goto('http://whatsmyuseragent.org/', {
+  await page.goto('https://playwright.dev/', {
     waitUntil: 'networkidle2',
   });
   await page.screenshot({ path: 'example.png' });
@@ -77,7 +75,7 @@ const { chromium } = require('playwright'); // 1
   const browser = await chromium.launch();
   const page = await browser.newPage(); // 2
   await page.setViewportSize({ width: 1280, height: 800 }); // 3
-  await page.goto('http://whatsmyuseragent.org/', {
+  await page.goto('https://playwright.dev/', {
     waitUntil: 'networkidle', // 4
   });
   await page.screenshot({ path: 'example.png' });
@@ -111,7 +109,7 @@ describe('Playwright homepage', () => {
   it('contains hero title', async () => {
     await page.goto('https://playwright.dev/');
     await page.waitForSelector('.hero__title');
-    const text = await page.$eval('.hero__title', (e) => e.textContent);
+    const text = await page.$eval('.hero__title', e => e.textContent);
     expect(text).toContain('Playwright enables reliable end-to-end testing'); // 5
   });
 
@@ -128,7 +126,7 @@ test.describe('Playwright homepage', () => {
     await page.goto('https://playwright.dev/');
     const titleLocator = page.locator('.hero__title'); // 4
     await expect(titleLocator).toContainText( // 5
-      'Playwright enables reliable end-to-end testing'
+        'Playwright enables reliable end-to-end testing'
     );
   });
 });
@@ -157,12 +155,12 @@ Once you're on Playwright Test, you get a lot!
 - Run tests across **all web engines** (Chrome, Firefox, Safari) on **any popular operating system** (Windows, macOS, Ubuntu)
 - Full support for multiple origins, [(i)frames](./api/class-frame), [tabs and contexts](./pages)
 - Run tests in isolation in parallel across multiple browsers
-- Built-in test artifact collection: [video recording](./test-configuration#record-video), [screenshots](./test-configuration#automatic-screenshots) and [playwright traces](./test-configuration#record-test-trace)
+- Built-in test [artifact collection](./test-use-options.md#recording-options)
 
 You also get all these ✨ awesome tools ✨ that come bundled with Playwright Test:
 - [Playwright Inspector](./debug.md)
-- [Playwright Test Code generation](./auth#code-generation)
-- [Playwright Tracing](./trace-viewer) for post-mortem debugging
+- [Playwright Test Code generation](./codegen-intro.md)
+- [Playwright Tracing](./trace-viewer.md) for post-mortem debugging
 
 ## Further Reading
 

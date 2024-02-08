@@ -21,16 +21,16 @@ import os from 'os';
 import path from 'path';
 import type * as stream from 'stream';
 import { wsReceiver, wsSender } from '../../utilsBundle';
-import { createGuid, makeWaitForNextTask, isUnderTest } from '../../utils';
+import { createGuid, makeWaitForNextTask, isUnderTest, getPackageManagerExecCommand } from '../../utils';
 import { removeFolders } from '../../utils/fileUtils';
-import type { BrowserOptions, BrowserProcess, PlaywrightOptions } from '../browser';
+import type { BrowserOptions, BrowserProcess } from '../browser';
 import type { BrowserContext } from '../browserContext';
 import { validateBrowserContextOptions } from '../browserContext';
 import { ProgressController } from '../progress';
 import { CRBrowser } from '../chromium/crBrowser';
 import { helper } from '../helper';
 import { PipeTransport } from '../../protocol/transport';
-import { RecentLogsCollector } from '../../common/debugLogger';
+import { RecentLogsCollector } from '../../utils/debugLogger';
 import { gracefullyCloseSet } from '../../utils/processLauncher';
 import { TimeoutSettings } from '../../common/timeoutSettings';
 import type * as channels from '@protocol/channels';
@@ -63,12 +63,10 @@ export class Android extends SdkObject {
   private _backend: Backend;
   private _devices = new Map<string, AndroidDevice>();
   readonly _timeoutSettings: TimeoutSettings;
-  readonly _playwrightOptions: PlaywrightOptions;
 
-  constructor(backend: Backend, playwrightOptions: PlaywrightOptions) {
-    super(playwrightOptions.rootSdkObject, 'android');
+  constructor(parent: SdkObject, backend: Backend) {
+    super(parent, 'android');
     this._backend = backend;
-    this._playwrightOptions = playwrightOptions;
     this._timeoutSettings = new TimeoutSettings();
   }
 
@@ -180,7 +178,7 @@ export class AndroidDevice extends SdkObject {
     debug('pw:android')('Stopping the old driver');
     await this.shell(`am force-stop com.microsoft.playwright.androiddriver`);
 
-    // uninstall and install driver on every excution
+    // uninstall and install driver on every execution
     if (!this._options.omitDriverInstall) {
       debug('pw:android')('Uninstalling the old driver');
       await this.shell(`cmd package uninstall com.microsoft.playwright.androiddriver`);
@@ -188,10 +186,11 @@ export class AndroidDevice extends SdkObject {
 
       debug('pw:android')('Installing the new driver');
       const executable = registry.findExecutable('android')!;
+      const packageManagerCommand = getPackageManagerExecCommand();
       for (const file of ['android-driver.apk', 'android-driver-target.apk']) {
         const fullName = path.join(executable.directory!, file);
         if (!fs.existsSync(fullName))
-          throw new Error('Please install Android driver apk using `npx playwright install android`');
+          throw new Error(`Please install Android driver apk using '${packageManagerCommand} playwright install android'`);
         await this.installApk(await fs.promises.readFile(fullName));
       }
     } else {
@@ -263,13 +262,15 @@ export class AndroidDevice extends SdkObject {
   async launchBrowser(pkg: string = 'com.android.chrome', options: channels.AndroidDeviceLaunchBrowserParams): Promise<BrowserContext> {
     debug('pw:android')('Force-stopping', pkg);
     await this._backend.runCommand(`shell:am force-stop ${pkg}`);
-    const socketName = isUnderTest() ? 'webview_devtools_remote_playwright_test' : ('playwright-' + createGuid());
+    const socketName = isUnderTest() ? 'webview_devtools_remote_playwright_test' : ('playwright_' + createGuid() + '_devtools_remote');
     const commandLine = this._defaultArgs(options, socketName).join(' ');
     debug('pw:android')('Starting', pkg, commandLine);
     // encode commandLine to base64 to avoid issues (bash encoding) with special characters
     await this._backend.runCommand(`shell:echo "${Buffer.from(commandLine).toString('base64')}" | base64 -d > /data/local/tmp/chrome-command-line`);
     await this._backend.runCommand(`shell:am start -a android.intent.action.VIEW -d about:blank ${pkg}`);
-    return await this._connectToBrowser(socketName, options);
+    const browserContext = await this._connectToBrowser(socketName, options);
+    await this._backend.runCommand(`shell:rm /data/local/tmp/chrome-command-line`);
+    return browserContext;
   }
 
   private _defaultArgs(options: channels.AndroidDeviceLaunchBrowserParams, socketName: string): string[] {
@@ -326,7 +327,6 @@ export class AndroidDevice extends SdkObject {
       cleanupArtifactsDir().catch(e => debug('pw:android')(`could not cleanup artifacts dir: ${e}`));
     });
     const browserOptions: BrowserOptions = {
-      ...this._android._playwrightOptions,
       name: 'clank',
       isChromium: true,
       slowMo: 0,
@@ -342,7 +342,7 @@ export class AndroidDevice extends SdkObject {
     };
     validateBrowserContextOptions(options, browserOptions);
 
-    const browser = await CRBrowser.connect(androidBrowser, browserOptions);
+    const browser = await CRBrowser.connect(this.attribution.playwright, androidBrowser, browserOptions);
     const controller = new ProgressController(serverSideCallMetadata(), this);
     const defaultContext = browser._defaultContext!;
     await controller.run(async progress => {

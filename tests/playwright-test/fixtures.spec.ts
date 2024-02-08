@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-import { test, expect, stripAnsi } from './playwright-test-fixtures';
+import { test, expect } from './playwright-test-fixtures';
 
 test('should work', async ({ runInlineTest }) => {
   const { results } = await runInlineTest({
-    'a.test.js': `
-      const test = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         asdf: async ({}, test) => await test(123),
       });
 
@@ -31,10 +32,57 @@ test('should work', async ({ runInlineTest }) => {
   expect(results[0].status).toBe('passed');
 });
 
+test('should work with comments inside fixtures', async ({ runInlineTest }) => {
+  const { results } = await runInlineTest({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
+        asdf: async ({}, test) => await test(123),
+        foo: async ({}, test) => await  test('foo'),
+        bar: async ({}, test) => await  test('bar'),
+      });
+
+      test('should use asdf', async ({ // }) {,,, /*
+    asdf, // a comment
+/*/aa* /* */       // line // //
+    /* // */      foo, /* what // */ bar // whoa
+          /* some // comment */ : //
+      /* // /* // */ barbar /* /* /* */
+          }) => {
+        expect(asdf).toBe(123);
+        expect(foo).toBe('foo');
+        expect(barbar).toBe('bar');
+      });
+    `,
+  });
+  expect(results[0].status).toBe('passed');
+});
+
+test('should throw a pretty error if fixtures use rest property', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
+        asdf: async ({...props}, use) => await use(123),
+      });
+      test('should not allow rest property inside tests', ({...all}) => {
+        expect(asdf).toBe(123);
+      });
+      test('should not allow rest property inside fixtures', ({asdf}) => {
+        expect(asdf).toBe(123);
+      });
+      `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain('Rest property "...all" is not supported. List all used fixtures explicitly, separated by comma.');
+  expect(result.output).toContain('Rest property "...props" is not supported. List all used fixtures explicitly, separated by comma.');
+});
+
 test('should work with a sync test function', async ({ runInlineTest }) => {
   const { results } = await runInlineTest({
-    'a.test.js': `
-      const test = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         asdf: async ({}, test) => await test(123),
       });
 
@@ -48,8 +96,9 @@ test('should work with a sync test function', async ({ runInlineTest }) => {
 
 test('should work with a sync fixture function', async ({ runInlineTest }) => {
   const { results } = await runInlineTest({
-    'a.test.js': `
-      const test = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         asdf: ({}, use) => {
           use(123);
         },
@@ -65,8 +114,9 @@ test('should work with a sync fixture function', async ({ runInlineTest }) => {
 
 test('should work with a non-arrow function', async ({ runInlineTest }) => {
   const { results } = await runInlineTest({
-    'a.test.js': `
-      const test = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         asdf: async ({}, test) => await test(123),
       });
 
@@ -80,8 +130,9 @@ test('should work with a non-arrow function', async ({ runInlineTest }) => {
 
 test('should work with a named function', async ({ runInlineTest }) => {
   const { results } = await runInlineTest({
-    'a.test.js': `
-      const test = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         asdf: async ({}, test) => await test(123),
       });
 
@@ -95,8 +146,9 @@ test('should work with a named function', async ({ runInlineTest }) => {
 
 test('should work with renamed parameters', async ({ runInlineTest }) => {
   const { results } = await runInlineTest({
-    'a.test.js': `
-      const test = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         asdf: async ({}, test) => await test(123),
       });
 
@@ -110,8 +162,9 @@ test('should work with renamed parameters', async ({ runInlineTest }) => {
 
 test('should work with destructured object', async ({ runInlineTest }) => {
   const { results } = await runInlineTest({
-    'a.test.js': `
-      const test = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         asdf: async ({}, test) => await test({ foo: 'foo', bar: { x: 'x', y: 'y' }, baz: 'baz' }),
       });
 
@@ -129,8 +182,9 @@ test('should work with destructured object', async ({ runInlineTest }) => {
 
 test('should work with destructured array', async ({ runInlineTest }) => {
   const { results } = await runInlineTest({
-    'a.test.js': `
-      const test = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         asdf: async ({}, test) => await test(['foo', 'bar', { baz: 'baz' }]),
         more: async ({}, test) => await test(55),
       });
@@ -154,8 +208,9 @@ test('should work with destructured array', async ({ runInlineTest }) => {
 
 test('should fail if parameters are not destructured', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'a.test.js': `
-      const test = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         asdf: async ({}, test) => await test(123),
       });
       test('should pass', function () {
@@ -167,30 +222,32 @@ test('should fail if parameters are not destructured', async ({ runInlineTest })
     `,
   });
   expect(result.output).toContain('First argument must use the object destructuring pattern: abc');
-  expect(result.output).toContain('a.test.js:11');
-  expect(stripAnsi(result.output)).toContain('function (abc)');
+  expect(result.output).toContain('a.test.ts:9');
+  expect(result.output).toContain('function (abc)');
   expect(result.results.length).toBe(0);
 });
 
 test('should fail with an unknown fixture', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'a.test.js': `
-      pwt.test('should use asdf', async ({asdf}) => {
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test('should use asdf', async ({asdf}) => {
         expect(asdf).toBe(123);
       });
     `,
   });
   expect(result.output).toContain('Test has unknown parameter "asdf".');
-  expect(result.output).toContain('a.test.js:5');
-  expect(stripAnsi(result.output)).toContain('async ({asdf})');
+  expect(result.output).toContain('a.test.ts:3');
+  expect(result.output).toContain('async ({asdf})');
   expect(result.results.length).toBe(0);
 });
 
 test('should run the fixture every time', async ({ runInlineTest }) => {
   const { results } = await runInlineTest({
-    'a.test.js': `
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
       let counter = 0;
-      const test = pwt.test.extend({
+      const test = base.extend({
         asdf: async ({}, test) => await test(counter++),
       });
       test('should use asdf 1', async ({asdf}) => {
@@ -209,9 +266,10 @@ test('should run the fixture every time', async ({ runInlineTest }) => {
 
 test('should only run worker fixtures once', async ({ runInlineTest }) => {
   const { results } = await runInlineTest({
-    'a.test.js': `
+    'a.test.ts': `
       let counter = 0;
-      const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         asdf: [ async ({}, test) => await test(counter++), { scope: 'worker' } ],
       });
       test('should use asdf 1', async ({asdf}) => {
@@ -230,8 +288,9 @@ test('should only run worker fixtures once', async ({ runInlineTest }) => {
 
 test('each file should get their own fixtures', async ({ runInlineTest }) => {
   const { results } = await runInlineTest({
-    'a.test.js': `
-      const test = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         worker: [ async ({}, test) => await test('worker-a'), { scope: 'worker' } ],
         test: async ({}, test) => await test('test-a'),
       });
@@ -240,8 +299,9 @@ test('each file should get their own fixtures', async ({ runInlineTest }) => {
         expect(test).toBe('test-a');
       });
     `,
-    'b.test.js': `
-      const test = pwt.test.extend({
+    'b.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         worker: [ async ({}, test) => await test('worker-b'), { scope: 'worker' } ],
         test: async ({}, test) => await test('test-b'),
       });
@@ -250,8 +310,9 @@ test('each file should get their own fixtures', async ({ runInlineTest }) => {
         expect(test).toBe('test-b');
       });
     `,
-    'c.test.js': `
-      const test = pwt.test.extend({
+    'c.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         worker: [ async ({}, test) => await test('worker-c'), { scope: 'worker' } ],
         test: async ({}, test) => await test('test-c'),
       });
@@ -268,25 +329,26 @@ test('tests should be able to share worker fixtures', async ({ runInlineTest }) 
   const { results } = await runInlineTest({
     'worker.js': `
       global.counter = 0;
-      const test = pwt.test.extend({
+      const { test: base, expect } = require('@playwright/test');
+      const test = base.extend({
         worker: [ async ({}, test) => await test(global.counter++), { scope: 'worker' } ],
       });
-      module.exports = test;
+      module.exports = { test, expect };
     `,
-    'a.test.js': `
-      const test = require('./worker.js');
+    'a.test.ts': `
+      const { test, expect } = require('./worker.js');
       test('should use worker', async ({worker}) => {
         expect(worker).toBe(0);
       });
     `,
-    'b.test.js': `
-      const test = require('./worker.js');
+    'b.test.ts': `
+      const { test, expect } = require('./worker.js');
       test('should use worker', async ({worker}) => {
         expect(worker).toBe(0);
       });
     `,
-    'c.test.js': `
-      const test = require('./worker.js');
+    'c.test.ts': `
+      const { test, expect } = require('./worker.js');
       test('should use worker', async ({worker}) => {
         expect(worker).toBe(0);
       });
@@ -297,11 +359,11 @@ test('tests should be able to share worker fixtures', async ({ runInlineTest }) 
 
 test('automatic fixtures should work', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'a.test.js': `
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
       let counterTest = 0;
       let counterHooksIncluded = 0;
       let counterWorker = 0;
-      const test = pwt.test;
       test.use({
         automaticTestFixture: [ async ({}, runTest) => {
           ++counterTest;
@@ -326,26 +388,26 @@ test('automatic fixtures should work', async ({ runInlineTest }) => {
       test.beforeEach(async ({}) => {
         expect(counterWorker).toBe(1);
         expect(counterTest === 1 || counterTest === 2).toBe(true);
-        expect(counterHooksIncluded === 1 || counterHooksIncluded === 2).toBe(true);
+        expect(counterHooksIncluded === 2 || counterHooksIncluded === 3).toBe(true);
       });
       test('test 1', async ({}) => {
         expect(counterWorker).toBe(1);
-        expect(counterHooksIncluded).toBe(1);
+        expect(counterHooksIncluded).toBe(2);
         expect(counterTest).toBe(1);
       });
       test('test 2', async ({}) => {
         expect(counterWorker).toBe(1);
-        expect(counterHooksIncluded).toBe(2);
+        expect(counterHooksIncluded).toBe(3);
         expect(counterTest).toBe(2);
       });
       test.afterEach(async ({}) => {
         expect(counterWorker).toBe(1);
         expect(counterTest === 1 || counterTest === 2).toBe(true);
-        expect(counterHooksIncluded === 1 || counterHooksIncluded === 2).toBe(true);
+        expect(counterHooksIncluded === 2 || counterHooksIncluded === 3).toBe(true);
       });
       test.afterAll(async ({}) => {
         expect(counterWorker).toBe(1);
-        expect(counterHooksIncluded).toBe(2);
+        expect(counterHooksIncluded).toBe(4);
         expect(counterTest).toBe(2);
       });
     `
@@ -356,8 +418,8 @@ test('automatic fixtures should work', async ({ runInlineTest }) => {
 
 test('automatic fixture should start before regular fixture and teardown after', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'a.test.js': `
-      const test = pwt.test;
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
       test.use({
         auto: [ async ({}, runTest) => {
           console.log('\\n%%auto-setup');
@@ -375,18 +437,18 @@ test('automatic fixture should start before regular fixture and teardown after',
     `
   });
   expect(result.exitCode).toBe(0);
-  expect(result.output.split('\n').filter(line => line.startsWith('%%'))).toEqual([
-    '%%auto-setup',
-    '%%foo-setup',
-    '%%foo-teardown',
-    '%%auto-teardown',
+  expect(result.outputLines).toEqual([
+    'auto-setup',
+    'foo-setup',
+    'foo-teardown',
+    'auto-teardown',
   ]);
 });
 
 test('automatic fixtures should keep workerInfo after conditional skip', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'a.test.js': `
-      const test = pwt.test;
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
       test.use({
         automaticTestFixture: [ async ({}, runTest, workerInfo) => {
           await runTest();
@@ -413,9 +475,10 @@ test('automatic fixtures should keep workerInfo after conditional skip', async (
 
 test('tests does not run non-automatic worker fixtures', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'a.test.js': `
+    'a.test.ts': `
       let counter = 0;
-      const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         nonAutomaticWorkerFixture: [ async ({}, runTest) => {
           ++counter;
           await runTest();
@@ -435,7 +498,8 @@ test('should teardown fixtures after timeout', async ({ runInlineTest }, testInf
   require('fs').writeFileSync(file, '', 'utf8');
   const result = await runInlineTest({
     'a.spec.ts': `
-      const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         file: [ ${JSON.stringify(file)}, { scope: 'worker' } ],
         w: [ async ({ file }, runTest) => {
           await runTest('w');
@@ -461,11 +525,12 @@ test('should teardown fixtures after timeout', async ({ runInlineTest }, testInf
 
 test('should work with two different test objects', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'a.test.js': `
-      const test1 = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test1 = base.extend({
         foo: async ({}, test) => await test(123),
       });
-      const test2 = pwt.test.extend({
+      const test2 = base.extend({
         bar: async ({}, test) => await test(456),
       });
       test1('test 1', async ({foo}) => {
@@ -482,8 +547,9 @@ test('should work with two different test objects', async ({ runInlineTest }) =>
 
 test('should work with overrides calling base', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'a.test.js': `
-      const test1 = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test1 = base.extend({
         dep: async ({}, test) => await test('override'),
         foo: async ({}, test) => await test('base'),
         bar: async ({foo}, test) => await test(foo + '-bar'),
@@ -504,8 +570,9 @@ test('should work with overrides calling base', async ({ runInlineTest }) => {
 
 test('should understand worker fixture params in overrides calling base', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'a.test.js': `
-      const test1 = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test1 = base.extend({
         param: [ 'param', { scope: 'worker', option: true }],
       }).extend({
         foo: async ({}, test) => await test('foo'),
@@ -535,8 +602,9 @@ test('should understand worker fixture params in overrides calling base', async 
 
 test('should work with two overrides calling base', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'a.test.js': `
-      const test1 = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test1 = base.extend({
         foo: async ({}, test) => await test('foo'),
         bar: async ({}, test) => await test('bar'),
         baz: async ({foo, bar}, test) => await test(foo + '-baz-' + bar),
@@ -556,7 +624,7 @@ test('should work with two overrides calling base', async ({ runInlineTest }) =>
 test('should not create a new worker for test fixtures', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('base test', async ({}, testInfo) => {
         expect(testInfo.workerIndex).toBe(0);
       });
@@ -572,7 +640,7 @@ test('should not create a new worker for test fixtures', async ({ runInlineTest 
       });
     `,
     'b.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       const test2 = test.extend({
         foo: async ({}, run) => {
           console.log('foo-b');
@@ -599,7 +667,7 @@ test('should not create a new worker for test fixtures', async ({ runInlineTest 
 test('should create a new worker for worker fixtures', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('base test', async ({}, testInfo) => {
         console.log('\\n%%base-' + testInfo.workerIndex);
       });
@@ -615,7 +683,7 @@ test('should create a new worker for worker fixtures', async ({ runInlineTest })
       });
     `,
     'b.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       const test2 = test.extend({
         bar: async ({}, run) => {
           console.log('bar-b');
@@ -639,7 +707,7 @@ test('should create a new worker for worker fixtures', async ({ runInlineTest })
 test('should run tests in order', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('test1', async ({}, testInfo) => {
         expect(testInfo.workerIndex).toBe(0);
         console.log('\\n%%test1');
@@ -664,19 +732,19 @@ test('should run tests in order', async ({ runInlineTest }) => {
     `,
   }, { workers: 1 });
   expect(result.passed).toBe(3);
-  expect(result.output.split('\n').filter(line => line.startsWith('%%'))).toEqual([
-    '%%test1',
-    '%%beforeEach',
-    '%%test2',
-    '%%afterEach',
-    '%%test3',
+  expect(result.outputLines).toEqual([
+    'test1',
+    'beforeEach',
+    'test2',
+    'afterEach',
+    'test3',
   ]);
 });
 
 test('worker fixture should not receive TestInfo', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'a.test.js': `
-      const test = pwt.test;
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
       test.use({
         worker: [async ({}, use, info) => {
           expect(info.title).toBe(undefined);
@@ -696,8 +764,9 @@ test('worker fixture should not receive TestInfo', async ({ runInlineTest }) => 
 
 test('worker teardown errors reflected in timed-out tests', async ({ runInlineTest }) => {
   const result = await runInlineTest({
-    'a.test.js': `
-      const test = pwt.test.extend({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         foo: [async ({}, use) => {
           let cb;
           await use(new Promise((f, r) => cb = r));
@@ -713,4 +782,37 @@ test('worker teardown errors reflected in timed-out tests', async ({ runInlineTe
   expect(result.failed).toBe(1);
   expect(result.output).toContain('Test timeout of 1000ms exceeded.');
   expect(result.output).toContain('Rejecting!');
+});
+
+test('automatic worker fixtures should start before automatic test fixtures', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
+          autoTest: [async ({}, use) => {
+              console.log('\\n%%TEST FIXTURE 1');
+              await use();
+              console.log('\\n%%TEST FIXTURE 2');
+          }, { scope: 'test', auto: true }],
+
+          autoWorker: [async ({}, use) => {
+              console.log('\\n%%WORKER FIXTURE 1');
+              await use();
+              console.log('\\n%%WORKER FIXTURE 2');
+          }, { scope: 'worker', auto: true }],
+      });
+
+      test('test', async () => {
+          console.log('\\n%%TEST');
+      });
+    `
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.outputLines).toEqual([
+    'WORKER FIXTURE 1',
+    'TEST FIXTURE 1',
+    'TEST',
+    'TEST FIXTURE 2',
+    'WORKER FIXTURE 2',
+  ]);
 });

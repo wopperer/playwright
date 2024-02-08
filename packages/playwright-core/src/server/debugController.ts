@@ -15,7 +15,7 @@
  */
 
 import type { Mode, Source } from '@recorder/recorderTypes';
-import { gracefullyCloseAll } from '../utils/processLauncher';
+import { gracefullyProcessExitDoNotHang } from '../utils/processLauncher';
 import type { Browser } from './browser';
 import type { BrowserContext } from './browserContext';
 import { createInstrumentation, SdkObject, serverSideCallMetadata } from './instrumentation';
@@ -23,18 +23,18 @@ import type { InstrumentationListener } from './instrumentation';
 import type { Playwright } from './playwright';
 import { Recorder } from './recorder';
 import { EmptyRecorderApp } from './recorder/recorderApp';
-import { asLocator } from './isomorphic/locatorGenerators';
-import type { Language } from './isomorphic/locatorGenerators';
+import { asLocator } from '../utils/isomorphic/locatorGenerators';
+import type { Language } from '../utils/isomorphic/locatorGenerators';
 
 const internalMetadata = serverSideCallMetadata();
 
 export class DebugController extends SdkObject {
   static Events = {
-    BrowsersChanged: 'browsersChanged',
     StateChanged: 'stateChanged',
     InspectRequested: 'inspectRequested',
     SourceChanged: 'sourceChanged',
     Paused: 'paused',
+    SetModeRequested: 'setModeRequested',
   };
 
   private _autoCloseTimer: NodeJS.Timeout | undefined;
@@ -98,7 +98,7 @@ export class DebugController extends SdkObject {
 
     if (params.mode === 'none') {
       for (const recorder of await this._allRecorders()) {
-        recorder.hideHighlightedSelecor();
+        recorder.hideHighlightedSelector();
         recorder.setMode('none');
       }
       this.setAutoCloseEnabled(true);
@@ -121,8 +121,8 @@ export class DebugController extends SdkObject {
     }
     // Toggle the mode.
     for (const recorder of await this._allRecorders()) {
-      recorder.hideHighlightedSelecor();
-      if (params.mode === 'recording')
+      recorder.hideHighlightedSelector();
+      if (params.mode !== 'inspecting')
         recorder.setOutput(this._codegenId, params.file);
       recorder.setMode(params.mode);
     }
@@ -138,7 +138,7 @@ export class DebugController extends SdkObject {
       return;
     const heartBeat = () => {
       if (!this._playwright.allPages().length)
-        selfDestruct();
+        gracefullyProcessExitDoNotHang(0);
       else
         this._autoCloseTimer = setTimeout(heartBeat, 5000);
     };
@@ -153,7 +153,7 @@ export class DebugController extends SdkObject {
   async hideHighlight() {
     // Hide all active recorder highlights.
     for (const recorder of await this._allRecorders())
-      recorder.hideHighlightedSelecor();
+      recorder.hideHighlightedSelector();
     // Hide all locator.highlight highlights.
     await this._playwright.hideHighlight();
   }
@@ -168,11 +168,11 @@ export class DebugController extends SdkObject {
   }
 
   async kill() {
-    selfDestruct();
+    gracefullyProcessExitDoNotHang(0);
   }
 
   async closeAllBrowsers() {
-    await Promise.all(this.allBrowsers().map(browser => browser.close()));
+    await Promise.all(this.allBrowsers().map(browser => browser.close({ reason: 'Close all browsers requested' })));
   }
 
   private _emitSnapshot() {
@@ -193,8 +193,6 @@ export class DebugController extends SdkObject {
         pageCount += context.pages().length;
       }
     }
-    // TODO: browsers is deprecated, remove it.
-    this.emit(DebugController.Events.BrowsersChanged, browsers);
     this.emit(DebugController.Events.StateChanged, { pageCount });
   }
 
@@ -210,21 +208,12 @@ export class DebugController extends SdkObject {
     for (const browser of this._playwright.allBrowsers()) {
       for (const context of browser.contexts()) {
         if (!context.pages().length)
-          await context.close(serverSideCallMetadata());
+          await context.close({ reason: 'Browser collected' });
       }
       if (!browser.contexts())
-        await browser.close();
+        await browser.close({ reason: 'Browser collected' });
     }
   }
-}
-
-function selfDestruct() {
-  // Force exit after 30 seconds.
-  setTimeout(() => process.exit(0), 30000);
-  // Meanwhile, try to gracefully close all browsers.
-  gracefullyCloseAll().then(() => {
-    process.exit(0);
-  });
 }
 
 class InspectingRecorderApp extends EmptyRecorderApp {
@@ -248,5 +237,9 @@ class InspectingRecorderApp extends EmptyRecorderApp {
 
   override async setPaused(paused: boolean) {
     this._debugController.emit(DebugController.Events.Paused, { paused });
+  }
+
+  override async setMode(mode: Mode) {
+    this._debugController.emit(DebugController.Events.SetModeRequested, { mode });
   }
 }

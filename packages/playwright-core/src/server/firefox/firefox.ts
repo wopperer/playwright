@@ -16,36 +16,47 @@
  */
 
 import * as os from 'os';
-import fs from 'fs';
 import path from 'path';
 import { FFBrowser } from './ffBrowser';
 import { kBrowserCloseMessageId } from './ffConnection';
 import { BrowserType, kNoXServerRunningError } from '../browserType';
 import type { Env } from '../../utils/processLauncher';
 import type { ConnectionTransport } from '../transport';
-import type { BrowserOptions, PlaywrightOptions } from '../browser';
+import type { BrowserOptions } from '../browser';
 import type * as types from '../types';
-import { rewriteErrorMessage } from '../../utils/stackTrace';
-import { getAsBooleanFromENV, wrapInASCIIBox } from '../../utils';
+import { wrapInASCIIBox } from '../../utils';
+import type { SdkObject } from '../instrumentation';
+import type { ProtocolError } from '../protocolError';
 
 export class Firefox extends BrowserType {
-  constructor(playwrightOptions: PlaywrightOptions) {
-    super('firefox', playwrightOptions);
+  constructor(parent: SdkObject) {
+    super(parent, 'firefox');
   }
 
   _connectToTransport(transport: ConnectionTransport, options: BrowserOptions): Promise<FFBrowser> {
-    return FFBrowser.connect(transport, options);
+    return FFBrowser.connect(this.attribution.playwright, transport, options);
   }
 
-  _rewriteStartupError(error: Error): Error {
-    if (error.message.includes('no DISPLAY environment variable specified'))
-      return rewriteErrorMessage(error, '\n' + wrapInASCIIBox(kNoXServerRunningError, 1));
+  _doRewriteStartupLog(error: ProtocolError): ProtocolError {
+    if (!error.logs)
+      return error;
+    // https://github.com/microsoft/playwright/issues/6500
+    if (error.logs.includes(`as root in a regular user's session is not supported.`))
+      error.logs = '\n' + wrapInASCIIBox(`Firefox is unable to launch if the $HOME folder isn't owned by the current user.\nWorkaround: Set the HOME=/root environment variable${process.env.GITHUB_ACTION ? ' in your GitHub Actions workflow file' : ''} when running Playwright.`, 1);
+    if (error.logs.includes('no DISPLAY environment variable specified'))
+      error.logs = '\n' + wrapInASCIIBox(kNoXServerRunningError, 1);
     return error;
   }
 
   _amendEnvironment(env: Env, userDataDir: string, executable: string, browserArguments: string[]): Env {
     if (!path.isAbsolute(os.homedir()))
       throw new Error(`Cannot launch Firefox with relative home directory. Did you set ${os.platform() === 'win32' ? 'USERPROFILE' : 'HOME'} to a relative path?`);
+    if (os.platform() === 'linux') {
+      // Always remove SNAP_NAME and SNAP_INSTANCE_NAME env variables since they
+      // confuse Firefox: in our case, builds never come from SNAP.
+      // See https://github.com/microsoft/playwright/issues/20555
+      return { ...env, SNAP_NAME: undefined, SNAP_INSTANCE_NAME: undefined };
+    }
     return env;
   }
 
@@ -58,20 +69,9 @@ export class Firefox extends BrowserType {
     const { args = [], headless } = options;
     const userDataDirArg = args.find(arg => arg.startsWith('-profile') || arg.startsWith('--profile'));
     if (userDataDirArg)
-      throw new Error('Pass userDataDir parameter to `browserType.launchPersistentContext(userDataDir, ...)` instead of specifying --profile argument');
+      throw this._createUserDataDirArgMisuseError('--profile');
     if (args.find(arg => arg.startsWith('-juggler')))
       throw new Error('Use the port parameter instead of -juggler argument');
-    let firefoxUserPrefs = isPersistent ? undefined : options.firefoxUserPrefs;
-    if (getAsBooleanFromENV('PLAYWRIGHT_DISABLE_FIREFOX_CROSS_PROCESS'))
-      firefoxUserPrefs = { ...kDisableFissionFirefoxUserPrefs, ...firefoxUserPrefs };
-    if (Object.keys(kBandaidFirefoxUserPrefs).length)
-      firefoxUserPrefs = { ...kBandaidFirefoxUserPrefs, ...firefoxUserPrefs };
-    if (firefoxUserPrefs) {
-      const lines: string[] = [];
-      for (const [name, value] of Object.entries(firefoxUserPrefs))
-        lines.push(`user_pref(${JSON.stringify(name)}, ${JSON.stringify(value)});`);
-      fs.writeFileSync(path.join(userDataDir, 'user.js'), lines.join('\n'));
-    }
     const firefoxArguments = ['-no-remote'];
     if (headless) {
       firefoxArguments.push('-headless');
@@ -90,14 +90,3 @@ export class Firefox extends BrowserType {
   }
 }
 
-// Prefs for quick fixes that didn't make it to the build.
-// Should all be moved to `playwright.cfg`.
-const kBandaidFirefoxUserPrefs = {};
-
-const kDisableFissionFirefoxUserPrefs = {
-  'browser.tabs.remote.useCrossOriginEmbedderPolicy': false,
-  'browser.tabs.remote.useCrossOriginOpenerPolicy': false,
-  'browser.tabs.remote.separatePrivilegedMozillaWebContentProcess': false,
-  'fission.autostart': false,
-  'browser.tabs.remote.systemTriggeredAboutBlankAnywhere': true,
-};

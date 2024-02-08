@@ -14,18 +14,20 @@
  * limitations under the License.
  */
 
-import '@web/third_party/vscode/codicon.css';
-import { Workbench } from './ui/workbench';
-import * as React from 'react';
-import * as ReactDOM from 'react-dom';
-import { applyTheme } from '@web/theme';
 import '@web/common.css';
+import { applyTheme } from '@web/theme';
+import '@web/third_party/vscode/codicon.css';
+import React from 'react';
+import * as ReactDOM from 'react-dom';
+import { WorkbenchLoader } from './ui/workbenchLoader';
 
 (async () => {
   applyTheme();
   if (window.location.protocol !== 'file:') {
     if (window.location.href.includes('isUnderTest=true'))
       await new Promise(f => setTimeout(f, 1000));
+    if (!navigator.serviceWorker)
+      throw new Error(`Service workers are not supported.\nMake sure to serve the Trace Viewer (${window.location}) via HTTPS or localhost.`);
     navigator.serviceWorker.register('sw.bundle.js');
     if (!navigator.serviceWorker.controller) {
       await new Promise<void>(f => {
@@ -37,5 +39,5 @@ import '@web/common.css';
     setInterval(function() { fetch('ping'); }, 10000);
   }
 
-  ReactDOM.render(<Workbench/>, document.querySelector('#root'));
+  ReactDOM.render(<WorkbenchLoader/>, document.querySelector('#root'));
 })();

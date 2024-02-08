@@ -40,12 +40,6 @@ const { _electron: electron } = require('playwright');
 })();
 ```
 
-Note that since you don't need Playwright to install web browsers when testing Electron, you can omit browser download via setting the following environment variable when installing Playwright:
-
-```bash js
-PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i -D playwright
-```
-
 **Supported Electron versions are:**
 * v12.2.0+
 * v13.4.0+
@@ -142,3 +136,6 @@ Maximum time in milliseconds to wait for the application to start. Defaults to `
 
 ### option: Electron.launch.timezoneId = %%-context-option-timezoneid-%%
 * since: v1.12
+
+### option: Electron.launch.tracesDir = %%-browser-option-tracesdir-%%
+* since: v1.36

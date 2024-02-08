@@ -18,15 +18,14 @@ import type * as channels from '@protocol/channels';
 import { Browser } from './browser';
 import { BrowserContext, prepareBrowserContextParams } from './browserContext';
 import { ChannelOwner } from './channelOwner';
-import type { LaunchOptions, LaunchServerOptions, ConnectOptions, LaunchPersistentContextOptions, BrowserContextOptions } from './types';
+import type { LaunchOptions, LaunchServerOptions, ConnectOptions, LaunchPersistentContextOptions, BrowserContextOptions, Logger } from './types';
 import { Connection } from './connection';
 import { Events } from './events';
 import type { ChildProcess } from 'child_process';
 import { envObjectToArray } from './clientHelper';
 import { assert, headersObjectToArray, monotonicTime } from '../utils';
 import type * as api from '../../types/types';
-import { kBrowserClosedError } from '../common/errors';
-import { raceAgainstTimeout } from '../utils/timeoutRunner';
+import { raceAgainstDeadline } from '../utils/timeoutRunner';
 import type { Playwright } from './playwright';
 
 export interface BrowserServerLauncher {
@@ -48,10 +47,9 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
 
   // Instrumentation.
   _defaultContextOptions?: BrowserContextOptions;
-  _defaultLaunchOptions?: LaunchOptions;
-  _defaultConnectOptions?: ConnectOptions;
-  _onDidCreateContext?: (context: BrowserContext) => Promise<void>;
-  _onWillCloseContext?: (context: BrowserContext) => Promise<void>;
+  _defaultContextTimeout?: number;
+  _defaultContextNavigationTimeout?: number;
+  private _defaultLaunchOptions?: LaunchOptions;
 
   static from(browserType: channels.BrowserTypeChannel): BrowserType {
     return (browserType as any)._object;
@@ -68,12 +66,10 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
   }
 
   async launch(options: LaunchOptions = {}): Promise<Browser> {
-    if (this._defaultConnectOptions)
-      return await this._connectInsteadOfLaunching(this._defaultConnectOptions);
-
-    const logger = options.logger || this._defaultLaunchOptions?.logger;
     assert(!(options as any).userDataDir, 'userDataDir option is not supported in `browserType.launch`. Use `browserType.launchPersistentContext` instead');
     assert(!(options as any).port, 'Cannot specify a port without launching as a server.');
+
+    const logger = options.logger || this._defaultLaunchOptions?.logger;
     options = { ...this._defaultLaunchOptions, ...options };
     const launchOptions: channels.BrowserTypeLaunchParams = {
       ...options,
@@ -83,22 +79,8 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
     };
     return await this._wrapApiCall(async () => {
       const browser = Browser.from((await this._channel.launch(launchOptions)).browser);
-      browser._logger = logger;
-      browser._setBrowserType(this);
+      this._didLaunchBrowser(browser, options, logger);
       return browser;
-    });
-  }
-
-  private async _connectInsteadOfLaunching(connectOptions: ConnectOptions): Promise<Browser> {
-    return this._connect({
-      wsEndpoint: connectOptions.wsEndpoint,
-      headers: {
-        'x-playwright-launch-options': JSON.stringify(this._defaultLaunchOptions || {}),
-        ...connectOptions.headers,
-      },
-      _exposeNetwork: connectOptions._exposeNetwork,
-      slowMo: connectOptions.slowMo,
-      timeout: connectOptions.timeout ?? 3 * 60 * 1000, // 3 minutes
     });
   }
 
@@ -106,7 +88,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
     if (!this._serverLauncher)
       throw new Error('Launching server is not supported');
     options = { ...this._defaultLaunchOptions, ...options };
-    return this._serverLauncher.launchServer(options);
+    return await this._serverLauncher.launchServer(options);
   }
 
   async launchPersistentContext(userDataDir: string, options: LaunchPersistentContextOptions = {}): Promise<BrowserContext> {
@@ -125,10 +107,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
     return await this._wrapApiCall(async () => {
       const result = await this._channel.launchPersistentContext(persistentParams);
       const context = BrowserContext.from(result.context);
-      context._options = contextParams;
-      context._logger = logger;
-      context._setBrowserType(this);
-      await this._onDidCreateContext?.(context);
+      await this._didCreateContext(context, contextParams, options, logger);
       return context;
     });
   }
@@ -137,9 +116,9 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
   connect(wsEndpoint: string, options?: api.ConnectOptions): Promise<api.Browser>;
   async connect(optionsOrWsEndpoint: string | (api.ConnectOptions & { wsEndpoint: string }), options?: api.ConnectOptions): Promise<Browser>{
     if (typeof optionsOrWsEndpoint === 'string')
-      return this._connect({ ...options, wsEndpoint: optionsOrWsEndpoint });
+      return await this._connect({ ...options, wsEndpoint: optionsOrWsEndpoint });
     assert(optionsOrWsEndpoint.wsEndpoint, 'options.wsEndpoint is required');
-    return this._connect(optionsOrWsEndpoint);
+    return await this._connect(optionsOrWsEndpoint);
   }
 
   async _connect(params: ConnectOptions): Promise<Browser> {
@@ -151,20 +130,20 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
       const connectParams: channels.LocalUtilsConnectParams = {
         wsEndpoint: params.wsEndpoint,
         headers,
-        exposeNetwork: params._exposeNetwork,
+        exposeNetwork: params.exposeNetwork ?? params._exposeNetwork,
         slowMo: params.slowMo,
         timeout: params.timeout,
       };
       if ((params as any).__testHookRedirectPortForwarding)
         connectParams.socksProxyRedirectPortForTest = (params as any).__testHookRedirectPortForwarding;
-      const { pipe } = await localUtils._channel.connect(connectParams);
+      const { pipe, headers: connectHeaders } = await localUtils._channel.connect(connectParams);
       const closePipe = () => pipe.close().catch(() => {});
-      const connection = new Connection(localUtils);
+      const connection = new Connection(localUtils, this._instrumentation);
       connection.markAsRemote();
       connection.on('close', closePipe);
 
       let browser: Browser;
-      let closeError: string | undefined;
+      let closeError: Error | undefined;
       const onPipeClosed = () => {
         // Emulate all pages, contexts and the browser closing upon disconnect.
         for (const context of browser?.contexts() || []) {
@@ -173,7 +152,7 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
           context._onClose();
         }
         browser?._didClose();
-        connection.close(closeError || kBrowserClosedError);
+        connection.close(closeError);
       };
       pipe.on('closed', onPipeClosed);
       connection.onmessage = message => pipe.send({ message }).catch(onPipeClosed);
@@ -182,12 +161,12 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
         try {
           connection!.dispatch(message);
         } catch (e) {
-          closeError = e.toString();
+          closeError = e;
           closePipe();
         }
       });
 
-      const result = await raceAgainstTimeout(async () => {
+      const result = await raceAgainstDeadline(async () => {
         // For tests.
         if ((params as any).__testHookBeforeCreateBrowser)
           await (params as any).__testHookBeforeCreateBrowser();
@@ -199,12 +178,12 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
         }
         playwright._setSelectors(this._playwright.selectors);
         browser = Browser.from(playwright._initializer.preLaunchedBrowser!);
-        browser._logger = logger;
+        this._didLaunchBrowser(browser, {}, logger);
         browser._shouldCloseConnectionOnClose = true;
-        browser._setBrowserType(this);
+        browser._connectHeaders = connectHeaders;
         browser.on(Events.Browser.Disconnected, closePipe);
         return browser;
-      }, deadline ? deadline - monotonicTime() : 0);
+      }, deadline);
       if (!result.timedOut) {
         return result.result;
       } else {
@@ -214,14 +193,14 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
     });
   }
 
-  connectOverCDP(options: api.ConnectOverCDPOptions  & { wsEndpoint?: string }): Promise<api.Browser>;
-  connectOverCDP(endpointURL: string, options?: api.ConnectOverCDPOptions): Promise<api.Browser>;
-  connectOverCDP(endpointURLOrOptions: (api.ConnectOverCDPOptions & { wsEndpoint?: string })|string, options?: api.ConnectOverCDPOptions) {
+  async connectOverCDP(options: api.ConnectOverCDPOptions  & { wsEndpoint?: string }): Promise<api.Browser>;
+  async connectOverCDP(endpointURL: string, options?: api.ConnectOverCDPOptions): Promise<api.Browser>;
+  async connectOverCDP(endpointURLOrOptions: (api.ConnectOverCDPOptions & { wsEndpoint?: string })|string, options?: api.ConnectOverCDPOptions) {
     if (typeof endpointURLOrOptions === 'string')
-      return this._connectOverCDP(endpointURLOrOptions, options);
+      return await this._connectOverCDP(endpointURLOrOptions, options);
     const endpointURL = 'endpointURL' in endpointURLOrOptions ? endpointURLOrOptions.endpointURL : endpointURLOrOptions.wsEndpoint;
     assert(endpointURL, 'Cannot connect over CDP without wsEndpoint.');
-    return this.connectOverCDP(endpointURL, endpointURLOrOptions);
+    return await this.connectOverCDP(endpointURL, endpointURLOrOptions);
   }
 
   async _connectOverCDP(endpointURL: string, params: api.ConnectOverCDPOptions = {}): Promise<Browser>  {
@@ -235,10 +214,32 @@ export class BrowserType extends ChannelOwner<channels.BrowserTypeChannel> imple
       timeout: params.timeout
     });
     const browser = Browser.from(result.browser);
+    this._didLaunchBrowser(browser, {}, params.logger);
     if (result.defaultContext)
-      browser._contexts.add(BrowserContext.from(result.defaultContext));
-    browser._logger = params.logger;
-    browser._setBrowserType(this);
+      await this._didCreateContext(BrowserContext.from(result.defaultContext), {}, {}, params.logger);
     return browser;
+  }
+
+  _didLaunchBrowser(browser: Browser, browserOptions: LaunchOptions, logger: Logger | undefined) {
+    browser._browserType = this;
+    browser._options = browserOptions;
+    browser._logger = logger;
+  }
+
+  async _didCreateContext(context: BrowserContext, contextOptions: channels.BrowserNewContextParams, browserOptions: LaunchOptions, logger: Logger | undefined) {
+    context._logger = logger;
+    context._browserType = this;
+    this._contexts.add(context);
+    context._setOptions(contextOptions, browserOptions);
+    if (this._defaultContextTimeout !== undefined)
+      context.setDefaultTimeout(this._defaultContextTimeout);
+    if (this._defaultContextNavigationTimeout !== undefined)
+      context.setDefaultNavigationTimeout(this._defaultContextNavigationTimeout);
+    await this._instrumentation.onDidCreateBrowserContext(context);
+  }
+
+  async _willCloseContext(context: BrowserContext) {
+    this._contexts.delete(context);
+    await this._instrumentation.onWillCloseBrowserContext(context);
   }
 }

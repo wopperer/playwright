@@ -22,6 +22,7 @@ import { pipeline } from 'stream';
 import zlib from 'zlib';
 import { contextTest as it, expect } from '../config/browserTest';
 import { suppressCertificateWarning } from '../config/utils';
+import { kTargetClosedErrorMessage } from 'tests/config/errors';
 
 it.skip(({ mode }) => mode !== 'default');
 
@@ -134,7 +135,7 @@ for (const method of ['fetch', 'delete', 'get', 'head', 'patch', 'post', 'put'] 
         }
       }),
     ]);
-    const params = new URLSearchParams(request.url.substr(request.url.indexOf('?')));
+    const params = new URLSearchParams(request.url!.substr(request.url!.indexOf('?')));
     expect(params.get('p1')).toEqual('v1');
     expect(params.get('парам2')).toEqual('знач2');
   });
@@ -218,6 +219,32 @@ it('should add cookies from Set-Cookie header', async ({ context, page, server }
   expect((await page.evaluate(() => document.cookie)).split(';').map(s => s.trim()).sort()).toEqual(['foo=bar', 'session=value']);
 });
 
+it('should preserve cookie order from Set-Cookie header', async ({ context, page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/23390' });
+  server.setRoute('/setcookie.html', (req, res) => {
+    res.setHeader('Set-Cookie', ['cookie.0=foo', 'cookie.1=bar']);
+    res.end();
+  });
+  await page.request.get(server.PREFIX + '/setcookie.html');
+  const cookies = await context.cookies();
+  expect(cookies.map(c => ({ name: c.name, value: c.value }))).toEqual([
+    {
+      name: 'cookie.0',
+      value: 'foo'
+    },
+    {
+      name: 'cookie.1',
+      value: 'bar'
+    },
+  ]);
+  await page.goto(server.EMPTY_PAGE);
+  expect(await page.evaluate(() => document.cookie)).toEqual('cookie.0=foo; cookie.1=bar');
+  const requestPromise = server.waitForRequest('/empty.html');
+  await page.request.get(server.EMPTY_PAGE);
+  const request = await requestPromise;
+  expect(request.headers.cookie).toEqual('cookie.0=foo; cookie.1=bar');
+});
+
 it('should support cookie with empty value', async ({ context, page, server }) => {
   server.setRoute('/setcookie.html', (req, res) => {
     res.setHeader('Set-Cookie', ['first=']);
@@ -242,6 +269,43 @@ it('should not lose body while handling Set-Cookie header', async ({ context, se
   });
   const response = await context.request.get(server.PREFIX + '/setcookie.html');
   expect(await response.text()).toBe('text content');
+});
+
+it('should remove cookie with negative max-age', async ({ page, server }) => {
+  server.setRoute('/setcookie.html', (req, res) => {
+    res.setHeader('Set-Cookie', ['a=v; max-age=100000', `b=v; max-age=100000`, 'c=v']);
+    res.end();
+  });
+  server.setRoute('/removecookie.html', (req, res) => {
+    const maxAge = -2 * Date.now();
+    res.setHeader('Set-Cookie', [`a=v; max-age=${maxAge}`, `b=v; max-age=-1`]);
+    res.end();
+  });
+  await page.request.get(`${server.PREFIX}/setcookie.html`);
+  await page.request.get(`${server.PREFIX}/removecookie.html`);
+  const [serverRequest] = await Promise.all([
+    server.waitForRequest('/empty.html'),
+    page.request.get(server.EMPTY_PAGE)
+  ]);
+  expect(serverRequest.headers.cookie).toBe('c=v');
+});
+
+it('should remove cookie with expires far in the past', async ({ page, server }) => {
+  server.setRoute('/setcookie.html', (req, res) => {
+    res.setHeader('Set-Cookie', ['a=v; max-age=1000000']);
+    res.end();
+  });
+  server.setRoute('/removecookie.html', (req, res) => {
+    res.setHeader('Set-Cookie', [`a=v; expires=Wed, 01 Jan 1000 00:00:00 GMT`]);
+    res.end();
+  });
+  await page.request.get(`${server.PREFIX}/setcookie.html`);
+  await page.request.get(`${server.PREFIX}/removecookie.html`);
+  const [serverRequest] = await Promise.all([
+    server.waitForRequest('/empty.html'),
+    page.request.get(server.EMPTY_PAGE)
+  ]);
+  expect(serverRequest.headers.cookie).toBeFalsy();
 });
 
 it('should handle cookies on redirects', async ({ context, server, browserName, isWindows }) => {
@@ -274,7 +338,7 @@ it('should handle cookies on redirects', async ({ context, server, browserName, 
       context.request.get(`${server.PREFIX}/redirect1`),
     ]);
     expect(req1.headers.cookie).toBe('r1=v1');
-    expect(req2.headers.cookie.split(';').map(s => s.trim()).sort()).toEqual(['r1=v1', 'r2=v2']);
+    expect(req2.headers.cookie!.split(';').map(s => s.trim()).sort()).toEqual(['r1=v1', 'r2=v2']);
     expect(req3.headers.cookie).toBe('r1=v1');
   }
   const cookies = await context.cookies();
@@ -306,7 +370,7 @@ it('should return raw headers', async ({ context, page, server }) => {
   server.setRoute('/headers', (req, res) => {
     // Headers array is only supported since Node v14.14.0 so we write directly to the socket.
     // res.writeHead(200, ['name-a', 'v1','name-b', 'v4','Name-a', 'v2', 'name-A', 'v3']);
-    const conn = res.connection;
+    const conn = res.connection!;
     conn.write('HTTP/1.1 200 OK\r\n');
     conn.write('Name-A: v1\r\n');
     conn.write('name-b: v4\r\n');
@@ -323,51 +387,6 @@ it('should return raw headers', async ({ context, page, server }) => {
   // Comma separated values, this matches Response.headers()
   expect(response.headers()['name-a']).toBe('v1, v2, v3');
   expect(response.headers()['name-b']).toBe('v4');
-});
-
-it('should work with context level proxy', async ({ browserType, contextOptions, server, proxyServer }) => {
-  server.setRoute('/target.html', async (req, res) => {
-    res.end('<title>Served by the proxy</title>');
-  });
-
-  const browser = await browserType.launch({
-    proxy: { server: 'http://per-context' }
-  });
-
-  try {
-    proxyServer.forwardTo(server.PORT);
-    const context = await browser.newContext({
-      ...contextOptions,
-      proxy: { server: `localhost:${proxyServer.PORT}` }
-    });
-
-    const [request, response] = await Promise.all([
-      server.waitForRequest('/target.html'),
-      context.request.get(`http://non-existent.com/target.html`)
-    ]);
-    expect(response.status()).toBe(200);
-    expect(request.url).toBe('/target.html');
-  } finally {
-    await browser.close();
-  }
-});
-
-it('should pass proxy credentials', async ({ browserType, server, proxyServer }) => {
-  proxyServer.forwardTo(server.PORT);
-  let auth;
-  proxyServer.setAuthHandler(req => {
-    auth = req.headers['proxy-authorization'];
-    return !!auth;
-  });
-  const browser = await browserType.launch({
-    proxy: { server: `localhost:${proxyServer.PORT}`, username: 'user', password: 'secret' }
-  });
-  const context = await browser.newContext();
-  const response = await context.request.get('http://non-existent.com/simple.json');
-  expect(proxyServer.connectHosts).toContain('non-existent.com:80');
-  expect(auth).toBe('Basic ' + Buffer.from('user:secret').toString('base64'));
-  expect(await response.json()).toEqual({ foo: 'bar' });
-  await browser.close();
 });
 
 it('should work with http credentials', async ({ context, server }) => {
@@ -755,7 +774,7 @@ it('should throw on a redirect with an invalid URL', async ({ context, server })
   server.setRedirect('/redirect', '/test');
   server.setRoute('/test', (req, res) => {
     // Node.js prevents us from responding with an invalid header, therefore we manually write the response.
-    const conn = res.connection;
+    const conn = res.connection!;
     conn.write('HTTP/1.1 302\r\n');
     conn.write('Location: https://здравствуйте/\r\n');
     conn.write('\r\n');
@@ -902,7 +921,7 @@ it('should support multipart/form-data', async function({ context, server }) {
   expect(response.status()).toBe(200);
 });
 
-it('should support multipart/form-data with ReadSream values', async function({ context, page, asset, server }) {
+it('should support multipart/form-data with ReadStream values', async function({ context, page, asset, server }) {
   const formReceived = new Promise<{error: any, fields: formidable.Fields, files: Record<string, formidable.File>, serverRequest: IncomingMessage}>(resolve => {
     server.setRoute('/empty.html', async (serverRequest, res) => {
       const form = new formidable.IncomingForm();
@@ -932,6 +951,35 @@ it('should support multipart/form-data with ReadSream values', async function({ 
   expect(files['readStream'].originalFilename).toBe('simplezip.json');
   expect(files['readStream'].mimetype).toBe('application/json');
   expect(fs.readFileSync(files['readStream'].filepath).toString()).toBe(fs.readFileSync(asset('simplezip.json')).toString());
+  expect(response.status()).toBe(200);
+});
+
+it('should support multipart/form-data and keep the order', async function({ context, page, asset, server }) {
+  const given = {
+    firstName: 'John',
+    lastName: 'Doe',
+    age: 27,
+  };
+  given['foo']  = 'bar';
+  const givenKeys = Object.keys(given);
+  const formReceived = new Promise<{error: any, fields: formidable.Fields}>(resolve => {
+    server.setRoute('/empty.html', async (serverRequest, res) => {
+      const form = new formidable.IncomingForm();
+      form.parse(serverRequest, (error, fields, files) => {
+        server.serveFile(serverRequest, res);
+        resolve({ error, fields });
+      });
+    });
+  });
+  const [{ error, fields }, response] = await Promise.all([
+    formReceived,
+    context.request.post(server.EMPTY_PAGE, {
+      multipart: given,
+    })
+  ]);
+  expect(error).toBeFalsy();
+  const actualKeys = Object.keys(fields);
+  expect(actualKeys).toEqual(givenKeys);
   expect(response.status()).toBe(200);
 });
 
@@ -1011,7 +1059,7 @@ it('should accept bool and numeric params', async ({ page, server }) => {
       'bool2': false,
     }
   });
-  const params = new URLSearchParams(request.url.substr(request.url.indexOf('?')));
+  const params = new URLSearchParams(request!.url.substr(request!.url.indexOf('?')));
   expect(params.get('str')).toEqual('s');
   expect(params.get('num')).toEqual('10');
   expect(params.get('bool')).toEqual('true');
@@ -1031,7 +1079,7 @@ it('should abort requests when browser context closes', async ({ contextFactory,
     server.waitForRequest('/empty.html').then(() => context.close())
   ]);
   expect(error instanceof Error).toBeTruthy();
-  expect(error.message).toContain('Request context disposed');
+  expect(error.message).toContain(kTargetClosedErrorMessage);
   await connectionClosed;
 });
 
@@ -1087,6 +1135,16 @@ it('should set domain=localhost cookie', async ({ context, server, browserName, 
   expect(cookie.value).toBe('val');
 });
 
+it('fetch should not throw on long set-cookie value', async ({ context, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27165' });
+  server.setRoute('/empty.html', (req, res) => {
+    res.setHeader('Set-Cookie', [`foo=${'a'.repeat(4100)}; path=/;`, `bar=val`]);
+    res.end();
+  });
+  await context.request.get(server.EMPTY_PAGE, { timeout: 5000 });
+  const cookies = await context.cookies();
+  expect(cookies.map(c => c.name)).toContain('bar');
+});
 
 it('should support set-cookie with SameSite and without Secure attribute over HTTP', async ({ page, server, browserName, isWindows }) => {
   for (const value of ['None', 'Lax', 'Strict']) {
@@ -1105,4 +1163,39 @@ it('should support set-cookie with SameSite and without Secure attribute over HT
         expect(cookie.sameSite).toBe(value);
     });
   }
+});
+
+it('should update host header on redirect', async ({ context, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/26743' });
+  let redirectCount = 0;
+  server.setRoute('/redirect', (req, res) => {
+    redirectCount++;
+    const path = (req.headers.host === new URL(server.PREFIX).host) ? '/redirect' : '/test';
+    res.writeHead(302, {
+      host: new URL(server.CROSS_PROCESS_PREFIX).host,
+      location: server.CROSS_PROCESS_PREFIX + path,
+    });
+    res.end();
+  });
+  server.setRoute('/test', (req, res) => {
+    res.writeHead(200, {
+      'content-type': 'text/plain',
+    });
+    res.end('Hello!');
+  });
+  const reqPromise = server.waitForRequest('/test');
+  const response = await context.request.get(server.PREFIX + '/redirect', {
+    headers: { host: new URL(server.PREFIX).host }
+  });
+  expect(redirectCount).toBe(2);
+  await expect(response).toBeOK();
+  expect(await response.text()).toBe('Hello!');
+
+  expect((await reqPromise).headers.host).toBe(new URL(server.CROSS_PROCESS_PREFIX).host);
+});
+
+it('should not work after dispose', async ({ context, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27822' });
+  await context.request.dispose();
+  expect(await context.request.get(server.EMPTY_PAGE).catch(e => e.message)).toContain(kTargetClosedErrorMessage);
 });

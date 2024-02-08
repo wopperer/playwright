@@ -8,6 +8,10 @@ export module Protocol {
       browserContextId?: string;
       openerId?: string;
     };
+    export type UserPreference = {
+      name: string;
+      value: any;
+    };
     export type CookieOptions = {
       name: string;
       value: string;
@@ -71,6 +75,10 @@ export module Protocol {
     }
     export type enableParameters = {
       attachToDefaultContext: boolean;
+      userPrefs?: {
+        name: string;
+        value: any;
+      }[];
     };
     export type enableReturnValue = void;
     export type createBrowserContextParameters = {
@@ -104,6 +112,8 @@ export module Protocol {
       }[];
     };
     export type setExtraHTTPHeadersReturnValue = void;
+    export type clearCacheParameters = void;
+    export type clearCacheReturnValue = void;
     export type setBrowserProxyParameters = {
       type: ("http"|"https"|"socks"|"socks4");
       bypass: string[];
@@ -128,6 +138,7 @@ export module Protocol {
       credentials: {
         username: string;
         password: string;
+        origin?: string;
       }|null;
     };
     export type setHTTPCredentialsReturnValue = void;
@@ -563,7 +574,6 @@ export module Protocol {
       success: boolean;
     };
     export type reloadParameters = {
-      frameId: string;
     };
     export type reloadReturnValue = void;
     export type adoptNodeParameters = {
@@ -588,6 +598,7 @@ export module Protocol {
         width: number;
         height: number;
       };
+      quality?: number;
       omitDeviceScaleFactor?: boolean;
     };
     export type screenshotReturnValue = {
@@ -649,7 +660,7 @@ export module Protocol {
     };
     export type dispatchTapEventReturnValue = void;
     export type dispatchMouseEventParameters = {
-      type: string;
+      type: ("mousedown"|"mousemove"|"mouseup");
       button: number;
       x: number;
       y: number;
@@ -843,6 +854,7 @@ export module Protocol {
     export type HTTPCredentials = {
       username: string;
       password: string;
+      origin?: string;
     };
     export type SecurityDetails = {
       protocol: string;
@@ -1082,6 +1094,7 @@ export module Protocol {
     "Browser.close": Browser.closeParameters;
     "Browser.getInfo": Browser.getInfoParameters;
     "Browser.setExtraHTTPHeaders": Browser.setExtraHTTPHeadersParameters;
+    "Browser.clearCache": Browser.clearCacheParameters;
     "Browser.setBrowserProxy": Browser.setBrowserProxyParameters;
     "Browser.setContextProxy": Browser.setContextProxyParameters;
     "Browser.setHTTPCredentials": Browser.setHTTPCredentialsParameters;
@@ -1161,6 +1174,7 @@ export module Protocol {
     "Browser.close": Browser.closeReturnValue;
     "Browser.getInfo": Browser.getInfoReturnValue;
     "Browser.setExtraHTTPHeaders": Browser.setExtraHTTPHeadersReturnValue;
+    "Browser.clearCache": Browser.clearCacheReturnValue;
     "Browser.setBrowserProxy": Browser.setBrowserProxyReturnValue;
     "Browser.setContextProxy": Browser.setContextProxyReturnValue;
     "Browser.setHTTPCredentials": Browser.setHTTPCredentialsReturnValue;

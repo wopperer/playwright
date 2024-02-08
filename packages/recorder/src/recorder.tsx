@@ -16,15 +16,16 @@
 
 import type { CallLog, Mode, Source } from './recorderTypes';
 import { CodeMirrorWrapper } from '@web/components/codeMirrorWrapper';
-import { Source as SourceView } from '@web/components/source';
 import { SplitView } from '@web/components/splitView';
+import { TabbedPane } from '@web/components/tabbedPane';
 import { Toolbar } from '@web/components/toolbar';
-import { ToolbarButton } from '@web/components/toolbarButton';
+import { ToolbarButton, ToolbarSeparator } from '@web/components/toolbarButton';
 import * as React from 'react';
 import { CallLogView } from './callLog';
 import './recorder.css';
 import { asLocator } from '@isomorphic/locatorGenerators';
 import { toggleTheme } from '@web/theme';
+import { copy } from '@web/uiUtils';
 
 declare global {
   interface Window {
@@ -48,6 +49,7 @@ export const Recorder: React.FC<RecorderProps> = ({
   mode,
 }) => {
   const [fileId, setFileId] = React.useState<string | undefined>();
+  const [selectedTab, setSelectedTab] = React.useState<string>('log');
 
   React.useEffect(() => {
     if (!fileId && sources.length > 0)
@@ -66,6 +68,8 @@ export const Recorder: React.FC<RecorderProps> = ({
   const [locator, setLocator] = React.useState('');
   window.playwrightSetSelector = (selector: string, focus?: boolean) => {
     const language = source.language;
+    if (focus)
+      setSelectedTab('locator');
     setLocator(asLocator(language, selector));
   };
 
@@ -77,7 +81,7 @@ export const Recorder: React.FC<RecorderProps> = ({
       setFileId(value);
   };
 
-  const messagesEndRef = React.createRef<HTMLDivElement>();
+  const messagesEndRef = React.useRef<HTMLDivElement>(null);
   React.useLayoutEffect(() => {
     messagesEndRef.current?.scrollIntoView({ block: 'center', inline: 'nearest' });
   }, [messagesEndRef]);
@@ -104,11 +108,42 @@ export const Recorder: React.FC<RecorderProps> = ({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [paused]);
 
+  const onEditorChange = React.useCallback((selector: string) => {
+    if (mode === 'none')
+      window.dispatch({ event: 'setMode', params: { mode: 'standby' } });
+    setLocator(selector);
+    window.dispatch({ event: 'selectorUpdated', params: { selector } });
+  }, [mode]);
+
   return <div className='recorder'>
     <Toolbar>
-      <ToolbarButton icon='record' title='Record' toggled={mode === 'recording'} onClick={() => {
-        window.dispatch({ event: 'setMode', params: { mode: mode === 'recording' ? 'none' : 'recording' } });
+      <ToolbarButton icon='circle-large-filled' title='Record' toggled={mode === 'recording' || mode === 'recording-inspecting' || mode === 'assertingText' || mode === 'assertingVisibility'} onClick={() => {
+        window.dispatch({ event: 'setMode', params: { mode: mode === 'none' || mode === 'standby' || mode === 'inspecting' ? 'recording' : 'standby' } });
       }}>Record</ToolbarButton>
+      <ToolbarSeparator />
+      <ToolbarButton icon='inspect' title='Pick locator' toggled={mode === 'inspecting' || mode === 'recording-inspecting'} onClick={() => {
+        const newMode = {
+          'inspecting': 'standby',
+          'none': 'inspecting',
+          'standby': 'inspecting',
+          'recording': 'recording-inspecting',
+          'recording-inspecting': 'recording',
+          'assertingText': 'recording-inspecting',
+          'assertingVisibility': 'recording-inspecting',
+          'assertingValue': 'recording-inspecting',
+        }[mode];
+        window.dispatch({ event: 'setMode', params: { mode: newMode } }).catch(() => { });
+      }}></ToolbarButton>
+      <ToolbarButton icon='eye' title='Assert visibility' toggled={mode === 'assertingVisibility'} disabled={mode === 'none' || mode === 'standby' || mode === 'inspecting'} onClick={() => {
+        window.dispatch({ event: 'setMode', params: { mode: mode === 'assertingVisibility' ? 'recording' : 'assertingVisibility' } });
+      }}></ToolbarButton>
+      <ToolbarButton icon='whole-word' title='Assert text' toggled={mode === 'assertingText'} disabled={mode === 'none' || mode === 'standby' || mode === 'inspecting'} onClick={() => {
+        window.dispatch({ event: 'setMode', params: { mode: mode === 'assertingText' ? 'recording' : 'assertingText' } });
+      }}></ToolbarButton>
+      <ToolbarButton icon='symbol-constant' title='Assert value' toggled={mode === 'assertingValue'} disabled={mode === 'none' || mode === 'standby' || mode === 'inspecting'} onClick={() => {
+        window.dispatch({ event: 'setMode', params: { mode: mode === 'assertingValue' ? 'recording' : 'assertingValue' } });
+      }}></ToolbarButton>
+      <ToolbarSeparator />
       <ToolbarButton icon='files' title='Copy' disabled={!source || !source.text} onClick={() => {
         copy(source.text);
       }}></ToolbarButton>
@@ -132,23 +167,25 @@ export const Recorder: React.FC<RecorderProps> = ({
       }}></ToolbarButton>
       <ToolbarButton icon='color-mode' title='Toggle color mode' toggled={false} onClick={() => toggleTheme()}></ToolbarButton>
     </Toolbar>
-    <SplitView sidebarSize={200} sidebarHidden={mode === 'recording'}>
-      <SourceView text={source.text} language={source.language} highlight={source.highlight} revealLine={source.revealLine}></SourceView>
-      <div className='vbox'>
-        <Toolbar>
-          <ToolbarButton icon='microscope' title='Pick locator' toggled={mode === 'inspecting'} onClick={() => {
-            window.dispatch({ event: 'setMode', params: { mode: mode === 'inspecting' ? 'none' : 'inspecting' } }).catch(() => { });
-          }}>Pick locator</ToolbarButton>
-          <CodeMirrorWrapper text={locator} language={source.language} readOnly={false} focusOnChange={true} wrapLines={true} onChange={text => {
-            setLocator(text);
-            window.dispatch({ event: 'selectorUpdated', params: { selector: text, language: source.language } });
-          }}></CodeMirrorWrapper>
-          <ToolbarButton icon='files' title='Copy' onClick={() => {
-            copy(locator);
-          }}></ToolbarButton>
-        </Toolbar>
-        <CallLogView language={source.language} log={Array.from(log.values())}/>
-      </div>
+    <SplitView sidebarSize={200}>
+      <CodeMirrorWrapper text={source.text} language={source.language} highlight={source.highlight} revealLine={source.revealLine} readOnly={true} lineNumbers={true}/>
+      <TabbedPane
+        rightToolbar={selectedTab === 'locator' ? [<ToolbarButton icon='files' title='Copy' onClick={() => copy(locator)} />] : []}
+        tabs={[
+          {
+            id: 'locator',
+            title: 'Locator',
+            render: () => <CodeMirrorWrapper text={locator} language={source.language} readOnly={false} focusOnChange={true} onChange={onEditorChange} wrapLines={true}/>
+          },
+          {
+            id: 'log',
+            title: 'Log',
+            render: () => <CallLogView language={source.language} log={Array.from(log.values())}/>
+          },
+        ]}
+        selectedTab={selectedTab}
+        setSelectedTab={setSelectedTab}
+      />
     </SplitView>
   </div>;
 };
@@ -162,7 +199,7 @@ function renderSourceOptions(sources: Source[]): React.ReactNode {
   const hasGroup = sources.some(s => s.group);
   if (hasGroup) {
     const groups = new Set(sources.map(s => s.group));
-    return Array.from(groups).map(group => (
+    return [...groups].filter(Boolean).map(group => (
       <optgroup label={group} key={group}>
         {sources.filter(s => s.group === group).map(source => renderOption(source))}
       </optgroup>
@@ -170,15 +207,4 @@ function renderSourceOptions(sources: Source[]): React.ReactNode {
   }
 
   return sources.map(source => renderOption(source));
-}
-
-function copy(text: string) {
-  const textArea = document.createElement('textarea');
-  textArea.style.position = 'absolute';
-  textArea.style.zIndex = '-1000';
-  textArea.value = text;
-  document.body.appendChild(textArea);
-  textArea.select();
-  document.execCommand('copy');
-  textArea.remove();
 }

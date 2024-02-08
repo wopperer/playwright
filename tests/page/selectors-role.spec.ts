@@ -282,6 +282,22 @@ test('should filter hidden, unless explicitly asked for', async ({ page }) => {
     <button style="display:none">Never</button>
     <div id=host1></div>
     <div id=host2 style="display:none"></div>
+
+    <input name="one">
+    <details>
+      <summary>Open form</summary>
+      <label>
+         Label
+         <input name="two">
+      </label>
+    </details>
+
+    <select>
+      <option style="visibility:hidden">One</option>
+      <option style="display:none">Two</option>
+      <option>Three</option>
+    </select>
+
     <script>
       function addButton(host, text) {
         const root = host.attachShadow({ mode: 'open' });
@@ -328,6 +344,13 @@ test('should filter hidden, unless explicitly asked for', async ({ page }) => {
     `<button aria-hidden="false">Nay</button>`,
     `<button style="visibility:visible">Still here</button>`,
     `<button>Shadow1</button>`,
+  ]);
+  expect(await page.locator(`role=textbox`).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+    `<input name="one">`,
+  ]);
+  expect(await page.locator(`role=option`).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+    `<option style="visibility:hidden">One</option>`,
+    `<option>Three</option>`,
   ]);
 });
 
@@ -422,4 +445,42 @@ test('errors', async ({ page }) => {
 
   const e8 = await page.$('role=treeitem[expanded="none"]').catch(e => e);
   expect(e8.message).toContain(`"expanded" must be one of true, false`);
+});
+
+test('hidden with shadow dom slots', async ({ page }) => {
+  await page.setContent(`
+    <div make-hidden>
+      <button>hidden1</button>
+    </div>
+    <div make-hidden>
+      <span><button>hidden2</button></v>
+    </div>
+    <div>
+      <button>visible1</button>
+    </div>
+    <div>
+      <span><button>visible2</button></span>
+    </div>
+    <script>
+      for (const div of document.querySelectorAll('div')) {
+        const hidden = div.hasAttribute('make-hidden');
+        div.attachShadow({ mode: 'open' }).innerHTML = hidden ? 'nothing to see here' : '<slot></slot>';
+      }
+    </script>
+  `);
+  expect(await page.locator(`role=button`).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+    `<button>visible1</button>`,
+    `<button>visible2</button>`,
+  ]);
+  expect(await page.locator(`role=button[include-hidden]`).evaluateAll(els => els.map(e => e.outerHTML))).toEqual([
+    `<button>hidden1</button>`,
+    `<button>hidden2</button>`,
+    `<button>visible1</button>`,
+    `<button>visible2</button>`,
+  ]);
+});
+
+test('should support output accessible name', async ({ page }) => {
+  await page.setContent(`<label>Output1<output>output</output></label>`);
+  await expect(page.getByRole('status', { name: 'Output1' })).toBeVisible();
 });

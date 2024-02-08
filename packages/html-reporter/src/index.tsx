@@ -17,7 +17,7 @@
 import type { HTMLReport } from './types';
 import type zip from '@zip.js/zip.js';
 // @ts-ignore
-import zipImport from '@zip.js/zip.js/dist/zip-no-worker-inflate.min.js';
+import * as zipImport from '@zip.js/zip.js/lib/zip-no-worker-inflate.js';
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import './colors.css';
@@ -46,7 +46,7 @@ class ZipReport implements LoadedReport {
   private _json!: HTMLReport;
 
   async load() {
-    const zipReader = new zipjs.ZipReader(new zipjs.Data64URIReader((window as any).playwrightReportBase64), { useWebWorkers: false }) as zip.ZipReader;
+    const zipReader = new zipjs.ZipReader(new zipjs.Data64URIReader((window as any).playwrightReportBase64), { useWebWorkers: false });
     for (const entry of await zipReader.getEntries())
       this._entries.set(entry.filename, entry);
     this._json = await this.entry('report.json') as HTMLReport;

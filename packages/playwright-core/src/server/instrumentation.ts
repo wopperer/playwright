@@ -23,9 +23,10 @@ import type { BrowserType } from './browserType';
 import type { ElementHandle } from './dom';
 import type { Frame } from './frames';
 import type { Page } from './page';
+import type { Playwright } from './playwright';
 
 export type Attribution = {
-  isInternalPlaywright: boolean,
+  playwright: Playwright;
   browserType?: BrowserType;
   browser?: Browser;
   context?: BrowserContext | APIRequestContext;
@@ -35,6 +36,7 @@ export type Attribution = {
 
 import type { CallMetadata } from '@protocol/callMetadata';
 export type { CallMetadata } from '@protocol/callMetadata';
+import type * as trace from '@trace/trace';
 
 export const kTestSdkObjects = new WeakSet<SdkObject>();
 
@@ -61,7 +63,7 @@ export interface Instrumentation {
   onBeforeInputAction(sdkObject: SdkObject, metadata: CallMetadata, element: ElementHandle): Promise<void>;
   onCallLog(sdkObject: SdkObject, metadata: CallMetadata, logName: string, message: string): void;
   onAfterCall(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
-  onEvent(sdkObject: SdkObject, metadata: CallMetadata): void;
+  onEvent(sdkObject: SdkObject, event: trace.EventTraceEvent): void;
   onPageOpen(page: Page): void;
   onPageClose(page: Page): void;
   onBrowserOpen(browser: Browser): void;
@@ -73,7 +75,7 @@ export interface InstrumentationListener {
   onBeforeInputAction?(sdkObject: SdkObject, metadata: CallMetadata, element: ElementHandle): Promise<void>;
   onCallLog?(sdkObject: SdkObject, metadata: CallMetadata, logName: string, message: string): void;
   onAfterCall?(sdkObject: SdkObject, metadata: CallMetadata): Promise<void>;
-  onEvent?(sdkObject: SdkObject, metadata: CallMetadata): void;
+  onEvent?(sdkObject: SdkObject, event: trace.EventTraceEvent): void;
   onPageOpen?(page: Page): void;
   onPageClose?(page: Page): void;
   onBrowserOpen?(browser: Browser): void;
@@ -83,7 +85,9 @@ export interface InstrumentationListener {
 export function createInstrumentation(): Instrumentation {
   const listeners = new Map<InstrumentationListener, BrowserContext | APIRequestContext | null>();
   return new Proxy({}, {
-    get: (obj: any, prop: string) => {
+    get: (obj: any, prop: string | symbol) => {
+      if (typeof prop !== 'string')
+        return obj[prop];
       if (prop === 'addListener')
         return (listener: InstrumentationListener, context: BrowserContext | APIRequestContext | null) => listeners.set(listener, context);
       if (prop === 'removeListener')
@@ -103,14 +107,13 @@ export function createInstrumentation(): Instrumentation {
 export function serverSideCallMetadata(): CallMetadata {
   return {
     id: '',
-    wallTime: 0,
     startTime: 0,
     endTime: 0,
+    wallTime: Date.now(),
     type: 'Internal',
     method: '',
     params: {},
     log: [],
-    snapshots: [],
     isServerSide: true,
   };
 }

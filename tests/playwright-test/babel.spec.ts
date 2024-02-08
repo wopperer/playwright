@@ -19,7 +19,7 @@ import { test, expect } from './playwright-test-fixtures';
 test('should succeed', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'one-success.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
 
       class Foo {
         #logger = 2;
@@ -58,7 +58,7 @@ test('should treat enums equally', async ({ runInlineTest }) => {
       }
     `,
     'example.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
 
       import * as components from './component';
       import * as regular from './regular';
@@ -74,4 +74,79 @@ test('should treat enums equally', async ({ runInlineTest }) => {
 
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
+});
+
+test('should be able to access |this| inside class properties', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21794' });
+  const result = await runInlineTest({
+    'example.spec.ts': `
+      import { test, expect } from '@playwright/test';
+
+      class Foo {
+        constructor(private readonly incoming: number) {}
+        value = this.incoming;
+      }
+
+      test('works', () => {
+        expect(new Foo(42).value).toBe(42);
+      })
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should work with |const| Type Parameters', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21900' });
+  const result = await runInlineTest({
+    'example.spec.ts': `
+      import { test, expect } from '@playwright/test';
+
+      test('works', () => {
+        type HasNames = { names: readonly string[] };
+        function getNamesExactly<const T extends HasNames>(arg: T): T['names'] {
+        //                       ^^^^^
+            return arg.names;
+        }
+        const names = getNamesExactly({ names: ['Alice', 'Bob', 'Eve'] });
+        console.log('names: ' + names.join(', '))
+      })
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.output).toContain('names: Alice, Bob, Eve');
+});
+
+test('should not read browserslist file', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/23125' });
+  const result = await runInlineTest({
+    'package.json': `{ "browserslist": ["some invalid! value :)"] }`,
+    'one-success.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('succeeds', () => {});
+    `
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.failed).toBe(0);
+});
+
+test('should not transform external', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      import { defineConfig } from '@playwright/test';
+      export default defineConfig({
+        build: {
+          external: ['**/a.spec.ts']
+        }
+      });
+    `,
+    'a.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('succeeds', () => {});
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toContain('Cannot use import statement outside a module');
 });

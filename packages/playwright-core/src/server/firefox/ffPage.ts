@@ -25,15 +25,17 @@ import { Page, Worker } from '../page';
 import type * as types from '../types';
 import { getAccessibilityTree } from './ffAccessibility';
 import type { FFBrowserContext } from './ffBrowser';
-import { FFSession, FFSessionEvents } from './ffConnection';
+import { FFSession } from './ffConnection';
 import { FFExecutionContext } from './ffExecutionContext';
 import { RawKeyboardImpl, RawMouseImpl, RawTouchscreenImpl } from './ffInput';
 import { FFNetworkManager } from './ffNetworkManager';
 import type { Protocol } from './protocol';
 import type { Progress } from '../progress';
 import { splitErrorMessage } from '../../utils/stackTrace';
-import { debugLogger } from '../../common/debugLogger';
+import { debugLogger } from '../../utils/debugLogger';
 import { ManualPromise } from '../../utils/manualPromise';
+import { BrowserContext } from '../browserContext';
+import { TargetClosedError } from '../errors';
 
 export const UTILITY_WORLD_NAME = '__playwright_utility_world__';
 
@@ -99,10 +101,6 @@ export class FFPage implements PageDelegate {
       eventsHelper.addEventListener(this._session, 'Page.screencastFrame', this._onScreencastFrame.bind(this)),
 
     ];
-    session.once(FFSessionEvents.Disconnected, () => {
-      this._markAsError(new Error('Page closed'));
-      this._page._didDisconnect();
-    });
     this._session.once('Page.ready', async () => {
       await this._page.initOpener(this._opener);
       if (this._initializationFailed)
@@ -245,7 +243,7 @@ export class FFPage implements PageDelegate {
     const error = new Error(message);
     error.stack = params.message + '\n' + params.stack.split('\n').filter(Boolean).map(a => a.replace(/([^@]*)@(.*)/, '    at $1 ($2)')).join('\n');
     error.name = name;
-    this._page.firePageError(error);
+    this._page.emitOnContextOnceInitialized(BrowserContext.Events.PageError, error, this._page);
   }
 
   _onConsole(payload: Protocol.Runtime.consolePayload) {
@@ -257,7 +255,7 @@ export class FFPage implements PageDelegate {
   }
 
   _onDialogOpened(params: Protocol.Page.dialogOpenedPayload) {
-    this._page.emit(Page.Events.Dialog, new dialog.Dialog(
+    this._page.emitOnContext(BrowserContext.Events.Dialog, new dialog.Dialog(
         this._page,
         params.type,
         params.message,
@@ -345,6 +343,7 @@ export class FFPage implements PageDelegate {
   }
 
   didClose() {
+    this._markAsError(new TargetClosedError());
     this._session.dispose();
     eventsHelper.removeEventListeners(this._eventListeners);
     this._networkManager.dispose();
@@ -393,7 +392,7 @@ export class FFPage implements PageDelegate {
   }
 
   async reload(): Promise<void> {
-    await this._session.send('Page.reload', { frameId: this._page.mainFrame()._id });
+    await this._session.send('Page.reload');
   }
 
   async goBack(): Promise<boolean> {
@@ -439,6 +438,7 @@ export class FFPage implements PageDelegate {
     const { data } = await this._session.send('Page.screenshot', {
       mimeType: ('image/' + format) as ('image/png' | 'image/jpeg'),
       clip: documentRect,
+      quality,
       omitDeviceScaleFactor: scale === 'css',
     });
     return Buffer.from(data, 'base64');
@@ -543,15 +543,15 @@ export class FFPage implements PageDelegate {
       injected.setInputFiles(node, files), files);
   }
 
-  async setInputFilePaths(handle: dom.ElementHandle<HTMLInputElement>, files: string[]): Promise<void> {
+  async setInputFilePaths(progress: Progress, handle: dom.ElementHandle<HTMLInputElement>, files: string[]): Promise<void> {
     await Promise.all([
       this._session.send('Page.setFileInputFiles', {
         frameId: handle._context.frame._id,
         objectId: handle._objectId,
         files
       }),
-      handle.dispatchEvent('input'),
-      handle.dispatchEvent('change')
+      handle.dispatchEvent(progress.metadata, 'input'),
+      handle.dispatchEvent(progress.metadata, 'change')
     ]);
   }
 
@@ -573,6 +573,14 @@ export class FFPage implements PageDelegate {
   async inputActionEpilogue(): Promise<void> {
   }
 
+  async resetForReuse(): Promise<void> {
+    // Firefox sometimes keeps the last mouse position in the page,
+    // which affects things like hovered state.
+    // See https://github.com/microsoft/playwright/issues/22432.
+    // Move mouse to (-1, -1) to avoid anything being hovered.
+    await this.rawMouse.move(-1, -1, 'none', new Set(), new Set(), false);
+  }
+
   async getFrameElement(frame: frames.Frame): Promise<dom.ElementHandle> {
     const parent = frame.parentFrame();
     if (!parent)
@@ -585,6 +593,10 @@ export class FFPage implements PageDelegate {
     if (!result.remoteObject)
       throw new Error('Frame has been detached.');
     return context.createHandle(result.remoteObject) as dom.ElementHandle;
+  }
+
+  shouldToggleStyleSheetToSyncAnimations(): boolean {
+    return false;
   }
 }
 

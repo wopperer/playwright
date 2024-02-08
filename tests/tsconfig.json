@@ -11,6 +11,7 @@
         "useUnknownInCatchVariables": false,
         "baseUrl": "..",
         "paths": {
+          "@isomorphic/*": ["packages/playwright-core/src/utils/isomorphic/*"],
           "@protocol/*": ["packages/protocol/src/*"],
           "@recorder/*": ["packages/recorder/src/*"],
           "@trace/*": ["packages/trace/src/*"],
@@ -18,5 +19,5 @@
         },
     },
     "include": ["**/*.spec.js", "**/*.ts", "index.d.ts"],
-    "exclude": ["playwright-test/", "components/"]
+    "exclude": ["components/", "installation/fixture-scripts/"]
 }

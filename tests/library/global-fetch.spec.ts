@@ -18,6 +18,7 @@ import os from 'os';
 import * as util from 'util';
 import { getPlaywrightVersion } from '../../packages/playwright-core/lib/utils/userAgent';
 import { expect, playwrightTest as it } from '../config/browserTest';
+import { kTargetClosedErrorMessage } from 'tests/config/errors';
 
 it.skip(({ mode }) => mode !== 'default');
 
@@ -97,6 +98,44 @@ it('should return error with wrong credentials', async ({ playwright, server }) 
   expect(response.status()).toBe(401);
 });
 
+it('should work with correct credentials and matching origin', async ({ playwright, server }) => {
+  server.setAuth('/empty.html', 'user', 'pass');
+  const request = await playwright.request.newContext({ httpCredentials: { username: 'user', password: 'pass', origin: server.PREFIX } });
+  const response = await request.get(server.EMPTY_PAGE);
+  expect(response.status()).toBe(200);
+});
+
+it('should work with correct credentials and matching origin case insensitive', async ({ playwright, server }) => {
+  server.setAuth('/empty.html', 'user', 'pass');
+  const request = await playwright.request.newContext({ httpCredentials: { username: 'user', password: 'pass', origin: server.PREFIX.toUpperCase() } });
+  const response = await request.get(server.EMPTY_PAGE);
+  expect(response.status()).toBe(200);
+});
+
+it('should return error with correct credentials and mismatching scheme', async ({ playwright, server }) => {
+  server.setAuth('/empty.html', 'user', 'pass');
+  const request = await playwright.request.newContext({ httpCredentials: { username: 'user', password: 'pass', origin: server.PREFIX.replace('http://', 'https://') } });
+  const response = await request.get(server.EMPTY_PAGE);
+  expect(response.status()).toBe(401);
+});
+
+it('should return error with correct credentials and mismatching hostname', async ({ playwright, server }) => {
+  server.setAuth('/empty.html', 'user', 'pass');
+  const hostname = new URL(server.PREFIX).hostname;
+  const origin = server.PREFIX.replace(hostname, 'mismatching-hostname');
+  const request = await playwright.request.newContext({ httpCredentials: { username: 'user', password: 'pass', origin: origin } });
+  const response = await request.get(server.EMPTY_PAGE);
+  expect(response.status()).toBe(401);
+});
+
+it('should return error with correct credentials and mismatching port', async ({ playwright, server }) => {
+  server.setAuth('/empty.html', 'user', 'pass');
+  const origin = server.PREFIX.replace(server.PORT.toString(), (server.PORT + 1).toString());
+  const request = await playwright.request.newContext({ httpCredentials: { username: 'user', password: 'pass', origin: origin } });
+  const response = await request.get(server.EMPTY_PAGE);
+  expect(response.status()).toBe(401);
+});
+
 it('should support WWW-Authenticate: Basic', async ({ playwright, server }) => {
   let credentials;
   server.setRoute('/empty.html', (req, res) => {
@@ -115,31 +154,6 @@ it('should support WWW-Authenticate: Basic', async ({ playwright, server }) => {
   expect(credentials).toBe('user:pass');
 });
 
-it('should use socks proxy', async ({ playwright, server, socksPort }) => {
-  const request = await playwright.request.newContext({ proxy: {
-    server: `socks5://localhost:${socksPort}`,
-  } });
-  const response = await request.get(server.EMPTY_PAGE);
-  expect(await response.text()).toContain('Served by the SOCKS proxy');
-});
-
-it('should pass proxy credentials', async ({ playwright, server, proxyServer }) => {
-  proxyServer.forwardTo(server.PORT);
-  let auth;
-  proxyServer.setAuthHandler(req => {
-    auth = req.headers['proxy-authorization'];
-    return !!auth;
-  });
-  const request = await playwright.request.newContext({
-    proxy: { server: `localhost:${proxyServer.PORT}`, username: 'user', password: 'secret' }
-  });
-  const response = await request.get('http://non-existent.com/simple.json');
-  expect(proxyServer.connectHosts).toContain('non-existent.com:80');
-  expect(auth).toBe('Basic ' + Buffer.from('user:secret').toString('base64'));
-  expect(await response.json()).toEqual({ foo: 'bar' });
-  await request.dispose();
-});
-
 it('should support global ignoreHTTPSErrors option', async ({ playwright, httpsServer }) => {
   const request = await playwright.request.newContext({ ignoreHTTPSErrors: true });
   const response = await request.get(httpsServer.EMPTY_PAGE);
@@ -153,7 +167,7 @@ it('should propagate ignoreHTTPSErrors on redirects', async ({ playwright, https
   expect(response.status()).toBe(200);
 });
 
-it('should resolve url relative to gobal baseURL option', async ({ playwright, server }) => {
+it('should resolve url relative to global baseURL option', async ({ playwright, server }) => {
   const request = await playwright.request.newContext({ baseURL: server.PREFIX });
   const response = await request.get('/empty.html');
   expect(response.url()).toBe(server.EMPTY_PAGE);
@@ -213,7 +227,7 @@ it('should abort requests when context is disposed', async ({ playwright, server
   ]);
   for (const result of results.slice(0, -1)) {
     expect(result instanceof Error).toBeTruthy();
-    expect(result.message).toContain('Request context disposed');
+    expect(result.message).toContain(kTargetClosedErrorMessage);
   }
   await connectionClosed;
 });
@@ -229,7 +243,7 @@ it('should abort redirected requests when context is disposed', async ({ playwri
     server.waitForRequest('/test').then(() => request.dispose())
   ]);
   expect(result instanceof Error).toBeTruthy();
-  expect(result.message).toContain('Request context disposed');
+  expect(result.message).toContain(kTargetClosedErrorMessage);
   await connectionClosed;
 });
 
@@ -400,4 +414,48 @@ it('should throw an error when maxRedirects is less than 0', async ({ playwright
   for (const method of ['GET', 'PUT', 'POST', 'OPTIONS', 'HEAD', 'PATCH'])
     await expect(async () => request.fetch(`${server.PREFIX}/a/redirect1`, { method, maxRedirects: -1 })).rejects.toThrow(`'maxRedirects' should be greater than or equal to '0'`);
   await request.dispose();
+});
+
+it('should keep headers capitalization', async ({ playwright, server }) => {
+  const request = await playwright.request.newContext();
+  const [serverRequest, response] = await Promise.all([
+    server.waitForRequest('/empty.html'),
+    request.get(server.EMPTY_PAGE, {
+      headers: {
+        'X-fOo': 'vaLUE',
+      }
+    }),
+  ]);
+  expect(response.ok()).toBeTruthy();
+  expect(serverRequest.rawHeaders).toContain('X-fOo');
+  expect(serverRequest.rawHeaders).toContain('vaLUE');
+  await request.dispose();
+});
+
+it('should serialize post data on the client', async ({ playwright, server }) => {
+  const request = await playwright.request.newContext();
+  const serverReq = server.waitForRequest('/empty.html');
+  let onStack: boolean = true;
+  const postReq = request.post(server.EMPTY_PAGE, {
+    data: {
+      toJSON() {
+        if (!onStack)
+          throw new Error('Should not be called on the server');
+        return { 'foo': 'bar' };
+      }
+    }
+  });
+  onStack = false;
+  await postReq;
+  const body = await (await serverReq).postBody;
+  expect(body.toString()).toBe('{"foo":"bar"}');
+  // expect(serverRequest.rawHeaders).toContain('vaLUE');
+  await request.dispose();
+});
+
+it('should throw after dispose', async ({ playwright, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27822' });
+  const request = await playwright.request.newContext();
+  await request.dispose();
+  await expect(request.get(server.EMPTY_PAGE)).rejects.toThrow('Target page, context or browser has been closed');
 });

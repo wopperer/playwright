@@ -15,15 +15,23 @@
  */
 
 import { devices, defineConfig } from '@playwright/experimental-ct-react';
+import path from 'path';
 
 export default defineConfig({
   testDir: 'src',
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   snapshotPathTemplate: '{testDir}/__screenshots__/{projectName}/{testFilePath}/{arg}{ext}',
-  reporter: 'html',
+  reporter: process.env.CI ? 'blob' : 'html',
   use: {
     ctPort: 3101,
+    ctViteConfig: {
+      resolve: {
+        alias: {
+          '@web': path.resolve(__dirname, '../web/src'),
+        },
+      }
+    },
     trace: 'on-first-retry',
   },
   projects: [{

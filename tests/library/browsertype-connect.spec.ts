@@ -17,20 +17,23 @@
 
 import fs from 'fs';
 import os from 'os';
-import http from 'http';
+import type http from 'http';
 import type net from 'net';
 import * as path from 'path';
-import { getUserAgent } from '../../packages/playwright-core/lib/utils/userAgent';
+import { getUserAgent, getPlaywrightVersion } from '../../packages/playwright-core/lib/utils/userAgent';
 import WebSocket from 'ws';
 import { expect, playwrightTest } from '../config/browserTest';
 import { parseTrace, suppressCertificateWarning } from '../config/utils';
 import formidable from 'formidable';
 import type { Browser, ConnectOptions } from 'playwright-core';
+import { createHttpServer } from '../../packages/playwright-core/lib/utils/network';
+import { kTargetClosedErrorMessage } from '../config/errors';
+import { RunServer } from '../config/remoteServer';
 
 type ExtraFixtures = {
   connect: (wsEndpoint: string, options?: ConnectOptions, redirectPortForTest?: number) => Promise<Browser>,
   dummyServerPort: number,
-  ipV6ServerUrl: string,
+  ipV6ServerPort: number,
 };
 const test = playwrightTest.extend<ExtraFixtures>({
   connect: async ({ browserType }, use) => {
@@ -48,7 +51,7 @@ const test = playwrightTest.extend<ExtraFixtures>({
   },
 
   dummyServerPort: async ({}, use) => {
-    const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
+    const server = createHttpServer((req: http.IncomingMessage, res: http.ServerResponse) => {
       res.end('<html><body>from-dummy-server</body></html>');
     });
     await new Promise<void>(resolve => server.listen(0, resolve));
@@ -56,19 +59,20 @@ const test = playwrightTest.extend<ExtraFixtures>({
     await new Promise<Error>(resolve => server.close(resolve));
   },
 
-  ipV6ServerUrl: async ({}, use) => {
+  ipV6ServerPort: async ({}, use) => {
     test.skip(!!process.env.INSIDE_DOCKER, 'docker does not support IPv6 by default');
-    const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
+    const server = createHttpServer((req: http.IncomingMessage, res: http.ServerResponse) => {
       res.end('<html><body>from-ipv6-server</body></html>');
     });
     await new Promise<void>(resolve => server.listen(0, '::1', resolve));
     const address = server.address() as net.AddressInfo;
-    await use('http://[::1]:' + address.port);
+    await use(address.port);
     await new Promise<Error>(resolve => server.close(resolve));
   },
 });
 
 test.slow(true, 'All connect tests are slow');
+test.skip(({ mode }) => mode.startsWith('service'));
 
 for (const kind of ['launchServer', 'run-server'] as const) {
   test.describe(kind, () => {
@@ -145,12 +149,36 @@ for (const kind of ['launchServer', 'run-server'] as const) {
       }
     });
 
-    test('should be able to visit ipv6', async ({ connect, startRemoteServer, ipV6ServerUrl }) => {
+    test('should be able to visit ipv6', async ({ connect, startRemoteServer, ipV6ServerPort }) => {
       test.fail(!!process.env.INSIDE_DOCKER, 'docker does not support IPv6 by default');
       const remoteServer = await startRemoteServer(kind);
       const browser = await connect(remoteServer.wsEndpoint());
       const page = await browser.newPage();
-      await page.goto(ipV6ServerUrl);
+      const ipV6Url = 'http://[::1]:' + ipV6ServerPort;
+      await page.goto(ipV6Url);
+      expect(await page.content()).toContain('from-ipv6-server');
+      await browser.close();
+    });
+
+    test('should ignore page.pause when headed', async ({ connect, startRemoteServer, browserType }) => {
+      const headless = (browserType as any)._defaultLaunchOptions.headless;
+      (browserType as any)._defaultLaunchOptions.headless = false;
+      const remoteServer = await startRemoteServer(kind);
+      const browser = await connect(remoteServer.wsEndpoint());
+      const browserContext = await browser.newContext();
+      const page = await browserContext.newPage();
+      await page.pause();
+      await browser.close();
+      (browserType as any)._defaultLaunchOptions.headless = headless;
+    });
+
+    test('should be able to visit ipv6 through localhost', async ({ connect, startRemoteServer, ipV6ServerPort }) => {
+      test.fail(!!process.env.INSIDE_DOCKER, 'docker does not support IPv6 by default');
+      const remoteServer = await startRemoteServer(kind);
+      const browser = await connect(remoteServer.wsEndpoint());
+      const page = await browser.newPage();
+      const ipV6Url = 'http://localhost:' + ipV6ServerPort;
+      await page.goto(ipV6Url);
       expect(await page.content()).toContain('from-ipv6-server');
       await browser.close();
     });
@@ -310,7 +338,7 @@ for (const kind of ['launchServer', 'run-server'] as const) {
       ]);
       expect(browser.isConnected()).toBe(false);
       const error = await page.waitForNavigation().catch(e => e);
-      expect(error.message).toContain('Navigation failed because page was closed');
+      expect(error.message).toContain(kTargetClosedErrorMessage);
     });
 
     test('should reject navigation when browser closes', async ({ connect, startRemoteServer, server }) => {
@@ -365,7 +393,7 @@ for (const kind of ['launchServer', 'run-server'] as const) {
       ]);
       for (let i = 0; i < 2; i++) {
         const message = results[i].message;
-        expect(message).toContain('Page closed');
+        expect(message).toContain(kTargetClosedErrorMessage);
         expect(message).not.toContain('Timeout');
       }
     });
@@ -426,29 +454,6 @@ for (const kind of ['launchServer', 'run-server'] as const) {
       await browser.close();
     });
 
-    test('should not throw on context.close after disconnect', async ({ connect, startRemoteServer }) => {
-      const remoteServer = await startRemoteServer(kind);
-      const browser = await connect(remoteServer.wsEndpoint());
-      const context = await browser.newContext();
-      await context.newPage();
-      await Promise.all([
-        new Promise(f => browser.on('disconnected', f)),
-        remoteServer.close()
-      ]);
-      await context.close();
-    });
-
-    test('should not throw on page.close after disconnect', async ({ connect, startRemoteServer }) => {
-      const remoteServer = await startRemoteServer(kind);
-      const browser = await connect(remoteServer.wsEndpoint());
-      const page = await browser.newPage();
-      await Promise.all([
-        new Promise(f => browser.on('disconnected', f)),
-        remoteServer.close()
-      ]);
-      await page.close();
-    });
-
     test('should saveAs videos from remote browser', async ({ connect, startRemoteServer }, testInfo) => {
       const remoteServer = await startRemoteServer(kind);
       const browser = await connect(remoteServer.wsEndpoint());
@@ -468,7 +473,9 @@ for (const kind of ['launchServer', 'run-server'] as const) {
       expect(error.message).toContain('Path is not available when connecting remotely. Use saveAs() to save a local copy.');
     });
 
-    test('should be able to connect 20 times to a single server without warnings', async ({ connect, startRemoteServer }) => {
+    test('should be able to connect 20 times to a single server without warnings', async ({ connect, startRemoteServer, platform }) => {
+      test.skip(platform !== 'linux', 'Testing non-platform specific code');
+
       const remoteServer = await startRemoteServer(kind);
 
       let warning = null;
@@ -544,16 +551,14 @@ for (const kind of ['launchServer', 'run-server'] as const) {
       await disconnectedPromise;
       expect(browser.isConnected()).toBe(false);
 
-      const navMessage = (await navigationPromise).message;
-      expect(navMessage).toContain('Connection closed');
-      expect(navMessage).toContain('Closed by');
-      expect(navMessage).toContain(__filename);
-      expect((await waitForNavigationPromise).message).toContain('Navigation failed because page was closed');
+      const navError = await navigationPromise;
+      expect(navError.message).toContain(kTargetClosedErrorMessage);
+      expect((await waitForNavigationPromise).message).toContain(kTargetClosedErrorMessage);
       expect((await page.goto(server.EMPTY_PAGE).catch(e => e)).message).toContain('has been closed');
-      expect((await page.waitForNavigation().catch(e => e)).message).toContain('Navigation failed because page was closed');
+      expect((await page.waitForNavigation().catch(e => e)).message).toContain(kTargetClosedErrorMessage);
     });
 
-    test('should be able to connect when the wsEndpont is passed as an option', async ({ browserType, startRemoteServer }) => {
+    test('should be able to connect when the wsEndpoint is passed as an option', async ({ browserType, startRemoteServer }) => {
       const remoteServer = await startRemoteServer(kind);
       const browser = await browserType.connect({
         wsEndpoint: remoteServer.wsEndpoint(),
@@ -585,6 +590,19 @@ for (const kind of ['launchServer', 'run-server'] as const) {
       const entry = log.entries[0];
       expect(entry.pageref).toBe(log.pages[0].id);
       expect(entry.request.url).toBe(server.EMPTY_PAGE);
+    });
+
+    test('should filter launch options', async ({ connect, startRemoteServer, server, browserType }, testInfo) => {
+      const tracesDir = testInfo.outputPath('traces');
+      const oldTracesDir = (browserType as any)._defaultLaunchOptions.tracesDir;
+      (browserType as any)._defaultLaunchOptions.tracesDir = tracesDir;
+      const remoteServer = await startRemoteServer(kind);
+      const browser = await connect(remoteServer.wsEndpoint());
+      const page = await browser.newPage();
+      await page.goto(server.EMPTY_PAGE);
+      await browser.close();
+      (browserType as any)._defaultLaunchOptions.tracesDir = oldTracesDir;
+      expect(fs.existsSync(tracesDir)).toBe(false);
     });
 
     test('should record trace with sources', async ({ connect, startRemoteServer, server, trace }, testInfo) => {
@@ -620,14 +638,15 @@ for (const kind of ['launchServer', 'run-server'] as const) {
       await page.route('**/*', async route => {
         const request = await playwright.request.newContext();
         const response = await request.get(server.PREFIX + '/simple.json');
-        route.fulfill({ response });
+        await route.fulfill({ response });
       });
       const response = await page.goto(server.EMPTY_PAGE);
       expect(response.status()).toBe(200);
       expect(await response.json()).toEqual({ 'foo': 'bar' });
     });
 
-    test('should upload large file', async ({ connect, startRemoteServer, server, browserName, isMac }, testInfo) => {
+    test('should upload large file', async ({ connect, startRemoteServer, server, browserName, isMac, mode }, testInfo) => {
+      test.skip(mode.startsWith('service'), 'Take it easy on service');
       test.skip(browserName === 'webkit' && isMac && parseInt(os.release(), 10) < 20, 'WebKit for macOS 10.15 is frozen and does not have corresponding protocol features.');
       test.slow();
       const remoteServer = await startRemoteServer(kind);
@@ -679,20 +698,24 @@ for (const kind of ['launchServer', 'run-server'] as const) {
       await Promise.all([uploadFile, file1.filepath].map(fs.promises.unlink));
     });
 
-    test('should connect when launching', async ({ browserType, startRemoteServer }) => {
+    test('setInputFiles should preserve lastModified timestamp', async ({ connect, startRemoteServer, asset }) => {
+      test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27452' });
       const remoteServer = await startRemoteServer(kind);
-      (browserType as any)._defaultConnectOptions = {
-        wsEndpoint: remoteServer.wsEndpoint()
-      };
+      const browser = await connect(remoteServer.wsEndpoint());
+      const context = await browser.newContext();
+      const page = await context.newPage();
 
-      const browser = await browserType.launch();
-
-      await Promise.all([
-        new Promise(f => browser.on('disconnected', f)),
-        remoteServer.close(),
-      ]);
-
-      (browserType as any)._defaultConnectOptions = undefined;
+      await page.setContent(`<input type=file multiple=true/>`);
+      const input = page.locator('input');
+      const files = ['file-to-upload.txt', 'file-to-upload-2.txt'];
+      await input.setInputFiles(files.map(f => asset(f)));
+      expect(await input.evaluate(e => [...(e as HTMLInputElement).files].map(f => f.name))).toEqual(files);
+      const timestamps = await input.evaluate(e => [...(e as HTMLInputElement).files].map(f => f.lastModified));
+      const expectedTimestamps = files.map(file => Math.round(fs.statSync(asset(file)).mtimeMs));
+      // On Linux browser sometimes reduces the timestamp by 1ms: 1696272058110.0715  -> 1696272058109 or even
+      // rounds it to seconds in WebKit: 1696272058110 -> 1696272058000.
+      for (let i = 0; i < timestamps.length; i++)
+        expect(Math.abs(timestamps[i] - expectedTimestamps[i]), `expected: ${expectedTimestamps}; actual: ${timestamps}`).toBeLessThan(1000);
     });
 
     test('should connect over http', async ({ connect, startRemoteServer, mode }) => {
@@ -717,7 +740,7 @@ for (const kind of ['launchServer', 'run-server'] as const) {
           res.end('<html><body>original-target</body></html>');
         });
         const remoteServer = await startRemoteServer(kind);
-        const browser = await connect(remoteServer.wsEndpoint(), { _exposeNetwork: '*' } as any);
+        const browser = await connect(remoteServer.wsEndpoint(), { exposeNetwork: '*' });
         const page = await browser.newPage();
         await page.goto(server.PREFIX + '/foo.html');
         expect(await page.content()).toContain('original-target');
@@ -741,6 +764,26 @@ for (const kind of ['launchServer', 'run-server'] as const) {
         expect(reachedOriginalTarget).toBe(false);
       });
 
+      test('should proxy ipv6 localhost requests @smoke', async ({ startRemoteServer, server, browserName, connect, platform, ipV6ServerPort }, testInfo) => {
+        test.skip(browserName === 'webkit' && platform === 'darwin', 'no localhost proxying');
+
+        let reachedOriginalTarget = false;
+        server.setRoute('/foo.html', async (req, res) => {
+          reachedOriginalTarget = true;
+          res.end('<html><body></body></html>');
+        });
+        const examplePort = 20_000 + testInfo.workerIndex * 3;
+        const remoteServer = await startRemoteServer(kind);
+        const browser = await connect(remoteServer.wsEndpoint(), { exposeNetwork: '*' }, ipV6ServerPort);
+        const page = await browser.newPage();
+        await page.goto(`http://[::1]:${examplePort}/foo.html`);
+        expect(await page.content()).toContain('from-ipv6-server');
+        const page2 = await browser.newPage();
+        await page2.goto(`http://localhost:${examplePort}/foo.html`);
+        expect(await page2.content()).toContain('from-ipv6-server');
+        expect(reachedOriginalTarget).toBe(false);
+      });
+
       test('should proxy localhost requests from fetch api', async ({ startRemoteServer, server, browserName, connect, channel, platform, dummyServerPort }, workerInfo) => {
         test.skip(browserName === 'webkit' && platform === 'darwin', 'no localhost proxying');
 
@@ -751,7 +794,7 @@ for (const kind of ['launchServer', 'run-server'] as const) {
         });
         const examplePort = 20_000 + workerInfo.workerIndex * 3;
         const remoteServer = await startRemoteServer(kind);
-        const browser = await connect(remoteServer.wsEndpoint(), { _exposeNetwork: '*' } as any, dummyServerPort);
+        const browser = await connect(remoteServer.wsEndpoint(), { exposeNetwork: '*' }, dummyServerPort);
         const page = await browser.newPage();
         const response = await page.request.get(`http://127.0.0.1:${examplePort}/foo.html`);
         expect(response.status()).toBe(200);
@@ -767,7 +810,7 @@ for (const kind of ['launchServer', 'run-server'] as const) {
         });
         const examplePort = 20_000 + workerInfo.workerIndex * 3;
         const remoteServer = await startRemoteServer(kind);
-        const browser = await connect(remoteServer.wsEndpoint(), { _exposeNetwork: '*' } as any, dummyServerPort);
+        const browser = await connect(remoteServer.wsEndpoint(), { exposeNetwork: '*' }, dummyServerPort);
         const page = await browser.newPage();
         await page.goto(`http://local.playwright:${examplePort}/foo.html`);
         expect(await page.content()).toContain('from-dummy-server');
@@ -777,7 +820,7 @@ for (const kind of ['launchServer', 'run-server'] as const) {
       test('should lead to the error page for forwarded requests when the connection is refused', async ({ connect, startRemoteServer, browserName }, workerInfo) => {
         const examplePort = 20_000 + workerInfo.workerIndex * 3;
         const remoteServer = await startRemoteServer(kind);
-        const browser = await connect(remoteServer.wsEndpoint(), { _exposeNetwork: '*' } as any);
+        const browser = await connect(remoteServer.wsEndpoint(), { exposeNetwork: '*' });
         const page = await browser.newPage();
         const error = await page.goto(`http://127.0.0.1:${examplePort}`).catch(e => e);
         if (browserName === 'chromium')
@@ -798,7 +841,7 @@ for (const kind of ['launchServer', 'run-server'] as const) {
         });
         const examplePort = 20_000 + workerInfo.workerIndex * 3;
         const remoteServer = await startRemoteServer(kind);
-        const browser = await connect(remoteServer.wsEndpoint(), { _exposeNetwork: 'localhost' } as any, dummyServerPort);
+        const browser = await connect(remoteServer.wsEndpoint(), { exposeNetwork: 'localhost' }, dummyServerPort);
         const page = await browser.newPage();
 
         // localhost should be proxied.
@@ -827,11 +870,11 @@ for (const kind of ['launchServer', 'run-server'] as const) {
         });
         const remoteServer = await startRemoteServer(kind);
         const browser = await connect(remoteServer.wsEndpoint(), {
-          _exposeNetwork: '127.0.0.1',
+          exposeNetwork: '127.0.0.1',
           headers: {
             'x-playwright-proxy': '*',
           },
-        } as any, dummyServerPort);
+        }, dummyServerPort);
         const page = await browser.newPage();
 
         // local.playwright should fail on the client side.
@@ -871,9 +914,9 @@ test.describe('launchServer only', () => {
     expect(browser.isConnected()).toBe(false);
 
     expect((await navigationPromise).message).toContain('has been closed');
-    expect((await waitForNavigationPromise).message).toContain('Navigation failed because page was closed');
+    expect((await waitForNavigationPromise).message).toContain(kTargetClosedErrorMessage);
     expect((await page.goto(server.EMPTY_PAGE).catch(e => e)).message).toContain('has been closed');
-    expect((await page.waitForNavigation().catch(e => e)).message).toContain('Navigation failed because page was closed');
+    expect((await page.waitForNavigation().catch(e => e)).message).toContain(kTargetClosedErrorMessage);
   });
 
   test('should be able to reconnect to a browser 12 times without warnings', async ({ connect, startRemoteServer, server }) => {
@@ -891,4 +934,14 @@ test.describe('launchServer only', () => {
       });
     }
   });
+});
+
+test('should refuse connecting when versions do not match', async ({ connect, childProcess }) => {
+  const server = new RunServer();
+  await server.start(childProcess, 'default', { PW_VERSION_OVERRIDE: '1.2.3' });
+  const error = await connect(server.wsEndpoint()).catch(e => e);
+  await server.close();
+  expect(error.message).toContain('Playwright version mismatch');
+  expect(error.message).toContain('server version: v1.2');
+  expect(error.message).toContain('client version: v' + getPlaywrightVersion(true));
 });

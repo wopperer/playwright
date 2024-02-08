@@ -32,13 +32,13 @@ const config: Config<CoverageWorkerOptions & PlaywrightWorkerOptions & Playwrigh
   globalTimeout: 5400000,
   workers: process.env.CI ? 1 : undefined,
   forbidOnly: !!process.env.CI,
-  preserveOutput: process.env.CI ? 'failures-only' : 'always',
   retries: process.env.CI ? 3 : 0,
   reporter: process.env.CI ? [
     ['dot'],
     ['json', { outputFile: path.join(outputDir, 'report.json') }],
   ] : 'line',
   projects: [],
+  globalSetup: './globalSetup.ts'
 };
 
 const metadata = {

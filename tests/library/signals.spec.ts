@@ -18,6 +18,7 @@
 import { playwrightTest as test, expect } from '../config/browserTest';
 import { execSync } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 
 test.slow();
 
@@ -41,7 +42,9 @@ test('should close the browser when the node process closes', async ({ startRemo
   expect(await remoteServer.childExitCode()).toBe(isWindows ? 1 : 0);
 });
 
-test('should remove temp dir on process.exit', async ({ startRemoteServer, server }, testInfo) => {
+test('should remove temp dir on process.exit', async ({ startRemoteServer, server, platform }, testInfo) => {
+  test.skip(platform === 'win32', 'Removing user data dir synchronously is blocked on Windows');
+
   const file = testInfo.outputPath('exit.file');
   const remoteServer = await startRemoteServer('launchServer', { url: server.EMPTY_PAGE, exitOnFile: file });
   const tempDir = await remoteServer.out('tempDir');
@@ -56,24 +59,18 @@ test('should remove temp dir on process.exit', async ({ startRemoteServer, serve
 test.describe('signals', () => {
   test.skip(({ platform }) => platform === 'win32');
 
-  test('should report browser close signal', async ({ startRemoteServer, server, headless }) => {
-    test.skip(!headless, 'Wrong exit code in headed');
-
-    const remoteServer = await startRemoteServer('launchServer', { url: server.EMPTY_PAGE });
-    const pid = await remoteServer.out('pid');
-    process.kill(-pid, 'SIGTERM');
-    expect(await remoteServer.out('exitCode')).toBe('null');
-    expect(await remoteServer.out('signal')).toBe('SIGTERM');
-    process.kill(remoteServer.child().pid);
-    await remoteServer.childExitCode();
-  });
-
-  test('should report browser close signal 2', async ({ startRemoteServer, server }) => {
+  test('should report browser close signal 2', async ({ startRemoteServer, server, isMac, browserName }) => {
     const remoteServer = await startRemoteServer('launchServer', { url: server.EMPTY_PAGE });
     const pid = await remoteServer.out('pid');
     process.kill(-pid, 'SIGKILL');
-    expect(await remoteServer.out('exitCode')).toBe('null');
-    expect(await remoteServer.out('signal')).toBe('SIGKILL');
+    if (isMac && browserName === 'webkit' && parseInt(os.release(), 10) > 22 && os.arch() === 'arm64') {
+      // WebKit on newer macOS exits differently.
+      expect(await remoteServer.out('exitCode')).toBe('137');
+      expect(await remoteServer.out('signal')).toBe('null');
+    } else {
+      expect(await remoteServer.out('exitCode')).toBe('null');
+      expect(await remoteServer.out('signal')).toBe('SIGKILL');
+    }
     process.kill(remoteServer.child().pid);
     await remoteServer.childExitCode();
   });
@@ -135,5 +132,13 @@ test.describe('signals', () => {
     expect(await remoteServer.out('exitCode')).toBe('null');
     expect(await remoteServer.out('signal')).toBe('SIGKILL');
     expect(await remoteServer.childExitCode()).toBe(130);
+  });
+
+  test('should not prevent default SIGTERM handling after browser close', async ({ startRemoteServer, server, platform }, testInfo) => {
+    const remoteServer = await startRemoteServer('launchServer', { startStopAndRunHttp: true });
+    expect(await remoteServer.out('closed')).toBe('success');
+    process.kill(remoteServer.child().pid, 'SIGTERM');
+    expect(await remoteServer.childExitCode()).toBe(null);
+    expect(await remoteServer.childSignal()).toBe('SIGTERM');
   });
 });

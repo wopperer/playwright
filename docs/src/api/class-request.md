@@ -56,11 +56,52 @@ page.RequestFailed += (_, request) =>
 };
 ```
 
+## method: Request.failure
+* since: v1.8
+* langs: js
+- returns: <[null]|[Object]>
+  - `errorText` <[string]> Human-readable error message, e.g. `'net::ERR_FAILED'`.
+
 ## method: Request.frame
 * since: v1.8
 - returns: <[Frame]>
 
 Returns the [Frame] that initiated this request.
+
+**Usage**
+
+```js
+const frameUrl = request.frame().url();
+```
+
+```java
+String frameUrl = request.frame().url();
+```
+
+```py
+frame_url = request.frame.url
+```
+
+```csharp
+var frameUrl = request.Frame.Url;
+```
+
+**Details**
+
+Note that in some cases the frame is not available, and this method will throw.
+* When request originates in the Service Worker. You can use `request.serviceWorker()` to check that.
+* When navigation request is issued before the corresponding frame is created. You can use [`method: Request.isNavigationRequest`] to check that.
+
+Here is an example that handles all the cases:
+
+```js
+if (request.serviceWorker())
+  console.log(`request ${request.url()} from a service worker`);
+else if (request.isNavigationRequest())
+  console.log(`request ${request.url()} is a navigation request`);
+else
+  console.log(`request ${request.url()} from a frame ${request.frame().url()}`);
+```
 
 ## method: Request.headers
 * since: v1.8
@@ -97,6 +138,9 @@ Name of the header.
 
 Whether this request is driving frame's navigation.
 
+Some navigation requests are issued before the corresponding frame is created, and therefore
+do not have [`method: Request.frame`] available.
+
 ## method: Request.method
 * since: v1.8
 - returns: <[string]>
@@ -119,6 +163,16 @@ Request's post body in a binary form, if any.
 * since: v1.8
 * langs: js, python
 - returns: <[null]|[Serializable]>
+
+Returns parsed request's body for `form-urlencoded` and JSON as a fallback if any.
+
+When the response is `application/x-www-form-urlencoded` then a key/value object of the values will be returned.
+Otherwise it will be parsed as JSON.
+
+## method: Request.postDataJSON
+* since: v1.12
+* langs: csharp
+- returns: <[null]|[JsonElement]>
 
 Returns parsed request's body for `form-urlencoded` and JSON as a fallback if any.
 
@@ -236,11 +290,13 @@ Returns the matching [Response] object, or `null` if the response was not receiv
 * langs: js
 - returns: <[null]|[Worker]>
 
-:::note
-This field is Chromium only. It's safe to call when using other browsers, but it will always be `null`.
-:::
-
 The Service [Worker] that is performing the request.
+
+**Details**
+
+This method is Chromium only. It's safe to call when using other browsers, but it will always be `null`.
+
+Requests originated in a Service Worker do not have a [`method: Request.frame`] available.
 
 ## async method: Request.sizes
 * since: v1.15
@@ -268,7 +324,7 @@ Returns resource size information for given request.
     to retrieve the resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
   - `requestStart` <[float]> Time immediately before the browser starts requesting the resource from the server,
     cache, or local resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
-  - `responseStart` <[float]> Time immediately after the browser starts requesting the resource from the server,
+  - `responseStart` <[float]> Time immediately after the browser receives the first byte of the response from the server,
     cache, or local resource. The value is given in milliseconds relative to `startTime`, -1 if not available.
   - `responseEnd` <[float]> Time immediately after the browser receives the last byte of the resource or immediately
     before the transport connection is closed, whichever comes first. The value is given in milliseconds relative to

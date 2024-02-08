@@ -3,6 +3,8 @@ id: evaluating
 title: "Evaluating JavaScript"
 ---
 
+## Introduction
+
 Playwright scripts run in your Playwright environment. Your page scripts run in the browser page environment. Those environments don't intersect, they are running in different virtual machines in different processes and even potentially on different computers.
 
 The [`method: Page.evaluate`] API can run a JavaScript function in the context
@@ -81,15 +83,15 @@ await page.evaluate(array => array.length, [1, 2, 3]);
 await page.evaluate(object => object.foo, { foo: 'bar' });
 
 // A single handle.
-const button = await page.evaluate('window.button');
+const button = await page.evaluateHandle('window.button');
 await page.evaluate(button => button.textContent, button);
 
 // Alternative notation using elementHandle.evaluate.
 await button.evaluate((button, from) => button.textContent.substring(from), 5);
 
 // Object with multiple handles.
-const button1 = await page.evaluate('window.button1');
-const button2 = await page.evaluate('window.button2');
+const button1 = await page.evaluateHandle('window.button1');
+const button2 = await page.evaluateHandle('window.button2');
 await page.evaluate(
     o => o.button1.textContent + o.button2.textContent,
     { button1, button2 });
@@ -126,15 +128,15 @@ obj.put("foo", "bar");
 page.evaluate("object => object.foo", obj);
 
 // A single handle.
-ElementHandle button = page.evaluate("window.button");
+ElementHandle button = page.evaluateHandle("window.button");
 page.evaluate("button => button.textContent", button);
 
 // Alternative notation using elementHandle.evaluate.
 button.evaluate("(button, from) => button.textContent.substring(from)", 5);
 
 // Object with multiple handles.
-ElementHandle button1 = page.evaluate("window.button1");
-ElementHandle button2 = page.evaluate("window.button2");
+ElementHandle button1 = page.evaluateHandle("window.button1");
+ElementHandle button2 = page.evaluateHandle("window.button2");
 Map<String, ElementHandle> arg = new HashMap<>();
 arg.put("button1", button1);
 arg.put("button2", button2);
@@ -175,15 +177,15 @@ await page.evaluate('array => array.length', [1, 2, 3])
 await page.evaluate('object => object.foo', { 'foo': 'bar' })
 
 # A single handle.
-button = await page.evaluate('button')
+button = await page.evaluate_handle('button')
 await page.evaluate('button => button.textContent', button)
 
 # Alternative notation using elementHandle.evaluate.
 await button.evaluate('(button, from) => button.textContent.substring(from)', 5)
 
 # Object with multiple handles.
-button1 = await page.query_selector('window.button1')
-button2 = await page.query_selector('window.button2')
+button1 = await page.evaluate_handle('window.button1')
+button2 = await page.evaluate_handle('window.button2')
 await page.evaluate("""
     o => o.button1.textContent + o.button2.textContent""",
     { 'button1': button1, 'button2': button2 })
@@ -218,15 +220,15 @@ page.evaluate('array => array.length', [1, 2, 3])
 page.evaluate('object => object.foo', { 'foo': 'bar' })
 
 # A single handle.
-button = page.evaluate('window.button')
+button = page.evaluate_handle('window.button')
 page.evaluate('button => button.textContent', button)
 
 # Alternative notation using elementHandle.evaluate.
 button.evaluate('(button, from) => button.textContent.substring(from)', 5)
 
 # Object with multiple handles.
-button1 = page.evaluate('window.button1')
-button2 = page.evaluate('.button2')
+button1 = page.evaluate_handle('window.button1')
+button2 = page.evaluate_handle('.button2')
 page.evaluate("""o => o.button1.textContent + o.button2.textContent""",
     { 'button1': button1, 'button2': button2 })
 
@@ -260,15 +262,15 @@ await page.EvaluateAsync<int[]>("array => array.length", new[] { 1, 2, 3 });
 await page.EvaluateAsync<object>("object => object.foo", new { foo = "bar" });
 
 // A single handle.
-var button = await page.EvaluateAsync("window.button");
+var button = await page.EvaluateHandleAsync("window.button");
 await page.EvaluateAsync<IJSHandle>("button => button.textContent", button);
 
 // Alternative notation using elementHandle.EvaluateAsync.
 await button.EvaluateAsync<string>("(button, from) => button.textContent.substring(from)", 5);
 
 // Object with multiple handles.
-var button1 = await page.EvaluateAsync("window.button1");
-var button2 = await page.EvaluateAsync("window.button2");
+var button1 = await page.EvaluateHandleAsync("window.button1");
+var button2 = await page.EvaluateHandleAsync("window.button2");
 await page.EvaluateAsync("o => o.button1.textContent + o.button2.textContent", new { button1, button2 });
 
 // Object destructuring works. Note that property names must match
@@ -349,7 +351,7 @@ Object result = page.evaluate("() => {\n" +
 ```python async
 data = { 'text': 'some data', 'value': 1 }
 result = await page.evaluate("""() => {
-  # There is no |data| in the web page.
+  // There is no |data| in the web page.
   window.myApp.use(data)
 }""")
 ```
@@ -357,7 +359,7 @@ result = await page.evaluate("""() => {
 ```python sync
 data = { 'text': 'some data', 'value': 1 }
 result = page.evaluate("""() => {
-  # There is no |data| in the web page.
+  // There is no |data| in the web page.
   window.myApp.use(data)
 }""")
 ```

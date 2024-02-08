@@ -18,6 +18,7 @@ env:
   # Force terminal colors. @see https://www.npmjs.com/package/colors
   FORCE_COLOR: 1
   FLAKINESS_CONNECTION_STRING: ${{ secrets.FLAKINESS_CONNECTION_STRING }}
+  ELECTRON_SKIP_BINARY_DOWNLOAD: 1
 
 jobs:
   test_linux:
@@ -26,14 +27,15 @@ jobs:
       fail-fast: false
       matrix:
         browser: [chromium, firefox, webkit]
-        os: [ubuntu-20.04, ubuntu-22.04]
+        os: [ubuntu-20.04]
     runs-on: ${{ matrix.os }}
+    env:
+      PWTEST_BOT_NAME: "${{ matrix.browser }}-${{ matrix.os }}"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -45,26 +47,28 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
+    - name: Upload blob report
       if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: ${{ matrix.browser }}-${{ matrix.os }}-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   test_mac:
     name: ${{ matrix.os }} (${{ matrix.browser }})
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-11, macos-12]
+        os: [macos-12, macos-13, macos-14]
         browser: [chromium, firefox, webkit]
     runs-on: ${{ matrix.os }}
+    env:
+      PWTEST_BOT_NAME: "${{ matrix.browser }}-${{ matrix.os }}"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -75,11 +79,12 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: ${{ matrix.browser }}-${{ matrix.os }}-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   test_win:
     name: "Windows"
@@ -88,28 +93,34 @@ jobs:
       matrix:
         browser: [chromium, firefox, webkit]
     runs-on: windows-latest
+    env:
+      PWTEST_BOT_NAME: "${{ matrix.browser }}-windows-latest"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         DEBUG: pw:install
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
     - run: npx playwright install --with-deps ${{ matrix.browser }} chromium
+    - run: npm run test -- --project=${{ matrix.browser }} --workers=1
+      if: matrix.browser == 'firefox'
+      shell: bash
     - run: npm run test -- --project=${{ matrix.browser }}
+      if: matrix.browser != 'firefox'
       shell: bash
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: ${{ matrix.browser }}-win-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   test-package-installations-other-node-versions:
     name: "Installation Test ${{ matrix.os }} (${{ matrix.node_version }})"
@@ -119,21 +130,22 @@ jobs:
       matrix:
         include:
         - os: ubuntu-latest
-          node_version: "^18.0.0"
+          node_version: 16
         - os: ubuntu-latest
-          node_version: "^16.0.0"
+          node_version: 20
     timeout-minutes: 30
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node_version }}
-    - run: npm i -g npm@8
     - run: npm ci
       env:
         DEBUG: pw:install
     - run: npm run build
-    - run: npx playwright install-deps
+    - run: npx playwright install --with-deps
+    - run: npm install -g yarn@1
+    - run: npm install -g pnpm@8
     - run: npm run itest
       if: matrix.os != 'ubuntu-latest'
     - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run itest
@@ -150,12 +162,13 @@ jobs:
         browser: [chromium, firefox, webkit]
         os: [ubuntu-20.04, ubuntu-22.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      PWTEST_BOT_NAME: "${{ matrix.browser }}-headed-${{ matrix.os }}"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -169,11 +182,12 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: always() && startsWith(matrix.os, 'ubuntu-')
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: headful-${{ matrix.browser }}-linux-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   transport_linux:
     name: "Transport"
@@ -182,12 +196,13 @@ jobs:
       matrix:
         mode: [driver, service]
     runs-on: ubuntu-20.04
+    env:
+      PWTEST_BOT_NAME: "${{ matrix.mode }}"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -195,21 +210,17 @@ jobs:
     - run: npm run build
     - run: npx playwright install --with-deps chromium
     - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run ctest
-      if: matrix.mode == 'service'
-      env:
-        PWTEST_MODE: ${{ matrix.mode }}
-    - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run ctest
-      if: matrix.mode != 'service'
       env:
         PWTEST_MODE: ${{ matrix.mode }}
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: mode-${{ matrix.mode }}-linux-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   tracing_linux:
     name: Tracing ${{ matrix.browser }} ${{ matrix.channel }}
@@ -223,12 +234,13 @@ jobs:
           - browser: chromium
             channel: chromium-tip-of-tree
     runs-on: ubuntu-20.04
+    env:
+      PWTEST_BOT_NAME: "tracing-${{ matrix.channel || matrix.browser }}"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         DEBUG: pw:install
@@ -242,16 +254,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
+      with:
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   chrome_stable_linux:
     name: "Chrome Stable (Linux)"
     runs-on: ubuntu-20.04
+    env:
+      PWTEST_BOT_NAME: "chrome-stable-linux"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -263,21 +282,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: chrome-stable-linux-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   chrome_stable_win:
     name: "Chrome Stable (Win)"
     runs-on: windows-latest
+    env:
+      PWTEST_BOT_NAME: "chrome-stable-windows"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -290,21 +311,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: chrome-stable-win-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   chrome_stable_mac:
     name: "Chrome Stable (Mac)"
     runs-on: macos-latest
+    env:
+      PWTEST_BOT_NAME: "chrome-stable-mac"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -316,25 +339,28 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: chrome-stable-mac-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   chromium_tot:
     name: Chromium TOT ${{ matrix.os }}
     runs-on: ${{ matrix.os  }}
+    env:
+      PWTEST_CHANNEL: chromium-tip-of-tree
+      PWTEST_BOT_NAME: "tip-of-tree-${{ matrix.os }}"
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-20.04, macos-12, windows-latest]
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -342,34 +368,33 @@ jobs:
     - run: npx playwright install --with-deps chromium-tip-of-tree
     - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run ctest
       if: matrix.os == 'ubuntu-20.04'
-      env:
-        PWTEST_CHANNEL: chromium-tip-of-tree
     - run: npm run ctest
       if: matrix.os != 'ubuntu-20.04'
-      env:
-        PWTEST_CHANNEL: chromium-tip-of-tree
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
+    - name: Upload blob report
       if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: chromium-tot-${{ matrix.os }}-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   chromium_tot_headed:
     name: Chromium TOT headed ${{ matrix.os }}
     runs-on: ${{ matrix.os  }}
+    env:
+      PWTEST_CHANNEL: chromium-tip-of-tree
+      PWTEST_BOT_NAME: "tip-of-tree-headed-${{ matrix.os }}"
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -377,30 +402,28 @@ jobs:
     - run: npx playwright install --with-deps chromium-tip-of-tree
     - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run ctest -- --headed
       if: matrix.os == 'ubuntu-latest'
-      env:
-        PWTEST_CHANNEL: chromium-tip-of-tree
     - run: npm run ctest -- --headed
       if: matrix.os != 'ubuntu-latest'
-      env:
-        PWTEST_CHANNEL: chromium-tip-of-tree
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
+    - name: Upload blob report
       if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: chromium-tot-headed-${{ matrix.os }}-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   firefox_beta_linux:
     name: "Firefox Beta (Linux)"
     runs-on: ubuntu-20.04
+    env:
+      PWTEST_BOT_NAME: "firefox-beta-linux"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -412,48 +435,52 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: firefox-beta-linux-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   firefox_beta_win:
     name: "Firefox Beta (Win)"
     runs-on: windows-latest
+    env:
+      PWTEST_BOT_NAME: "firefox-beta-windows"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
     - run: npx playwright install --with-deps firefox-beta chromium
-    - run: npm run ftest
+    - run: npm run ftest -- --workers=1
       shell: bash
       env:
         PWTEST_CHANNEL: firefox-beta
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: firefox-beta-win-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   firefox_beta_mac:
     name: "Firefox Beta (Mac)"
     runs-on: macos-latest
+    env:
+      PWTEST_BOT_NAME: "firefox-beta-mac"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -465,21 +492,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: firefox-beta-mac-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   edge_stable_mac:
     name: "Edge Stable (Mac)"
     runs-on: macos-latest
+    env:
+      PWTEST_BOT_NAME: "edge-stable-mac"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -491,22 +520,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: msedge-stable-mac-test-results
-        path: test-results
-
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   edge_stable_win:
     name: "Edge Stable (Win)"
     runs-on: windows-latest
+    env:
+      PWTEST_BOT_NAME: "edge-stable-windows"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -519,21 +549,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: edge-stable-win-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   edge_stable_linux:
     name: "Edge Stable (Linux)"
     runs-on: ubuntu-20.04
+    env:
+      PWTEST_BOT_NAME: "edge-stable-linux"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -545,21 +577,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: edge-stable-linux-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   edge_beta_mac:
     name: "Edge Beta (Mac)"
     runs-on: macos-latest
+    env:
+      PWTEST_BOT_NAME: "edge-beta-mac"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -571,21 +605,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: msedge-beta-mac-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   edge_beta_win:
     name: "Edge Beta (Win)"
     runs-on: windows-latest
+    env:
+      PWTEST_BOT_NAME: "edge-beta-windows"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -598,21 +634,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: edge-beta-win-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   edge_beta_linux:
     name: "Edge Beta (Linux)"
     runs-on: ubuntu-20.04
+    env:
+      PWTEST_BOT_NAME: "edge-beta-linux"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -624,21 +662,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: edge-beta-linux-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   edge_dev_mac:
     name: "Edge Dev (Mac)"
     runs-on: macos-latest
+    env:
+      PWTEST_BOT_NAME: "edge-dev-mac"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -650,21 +690,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: msedge-dev-mac-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   edge_dev_win:
     name: "Edge Dev (Win)"
     runs-on: windows-latest
+    env:
+      PWTEST_BOT_NAME: "edge-dev-windows"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -677,21 +719,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: edge-dev-win-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   edge_dev_linux:
     name: "Edge Dev (Linux)"
     runs-on: ubuntu-20.04
+    env:
+      PWTEST_BOT_NAME: "edge-dev-linux"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -703,21 +747,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: edge-dev-linux-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   chrome_beta_linux:
     name: "Chrome Beta (Linux)"
     runs-on: ubuntu-20.04
+    env:
+      PWTEST_BOT_NAME: "chrome-beta-linux"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -729,21 +775,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: chrome-beta-linux-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   chrome_beta_win:
     name: "Chrome Beta (Win)"
     runs-on: windows-latest
+    env:
+      PWTEST_BOT_NAME: "chrome-beta-windows"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -756,21 +804,23 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: chrome-beta-win-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   chrome_beta_mac:
     name: "Chrome Beta (Mac)"
     runs-on: macos-latest
+    env:
+      PWTEST_BOT_NAME: "chrome-beta-mac"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
@@ -782,54 +832,52 @@ jobs:
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
-      if: ${{ always() }}
+    - name: Upload blob report
+      if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: chrome-beta-mac-test-results
-        path: test-results
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}
 
   build-playwright-driver:
     name: "build-playwright-driver"
     runs-on: ubuntu-20.04
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
     - run: npm run build
     - run: npx playwright install-deps
     - run: utils/build/build-playwright-driver.sh
 
-  smoke_test_docker_integration:
-    runs-on: ubuntu-20.04
+  test_linux_chromium_headless_new:
+    name: Linux Chromium Headless New
+    runs-on: ubuntu-latest
+    env:
+      PWTEST_BOT_NAME: "headless-new"
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
       env:
         DEBUG: pw:install
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
     - run: npm run build
-    - run: npx playwright install --with-deps
-    - run: |
-        ./utils/docker/build.sh --amd64 focal $PWTEST_DOCKER_BASE_IMAGE
-        npx playwright docker build
-        nohup npx playwright docker start &
-        xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run test -- --grep '@smoke'
+    - run: npx playwright install --with-deps chromium
+    - run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- npm run test -- --project=chromium
       env:
-        PLAYWRIGHT_DOCKER: 1
-        PWTEST_DOCKER_BASE_IMAGE: playwright:localbuild
+        PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW: 1
+    - run: node tests/config/checkCoverage.js chromium
     - run: ./utils/upload_flakiness_dashboard.sh ./test-results/report.json
       if: always()
       shell: bash
-    - uses: actions/upload-artifact@v3
+    - name: Upload blob report
       if: always()
+      uses: ./.github/actions/upload-blob-report
       with:
-        name: docker-integration-test-results
-        path: test-results
-
+        report_dir: blob-report
+        job_name: ${{ env.PWTEST_BOT_NAME }}

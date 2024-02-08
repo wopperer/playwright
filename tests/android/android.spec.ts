@@ -24,7 +24,7 @@ test('androidDevice.close', async function({ playwright }) {
   const devices = await playwright._android.devices();
   expect(devices.length).toBe(1);
   const device = devices[0];
-  const events = [];
+  const events: string[] = [];
   device.on('close', () => events.push('close'));
   await device.close();
   await device.close();
@@ -39,7 +39,7 @@ test('should be able to use a custom port', async function({ playwright }) {
     ++countOfIncomingConnections;
     ++countOfConnections;
     socket.on('close', () => countOfConnections--);
-    const client = net.connect(5037);
+    const client = net.connect(5037, '127.0.0.1');
     socket.pipe(client).pipe(socket);
   });
   await new Promise<void>(resolve => server.listen(proxyPort, resolve));

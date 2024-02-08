@@ -4,7 +4,7 @@
     "useDefineForClassFields": true,
     "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "allowJs": true,
-    "skipLibCheck": false,
+    "skipLibCheck": true,
     "esModuleInterop": false,
     "allowSyntheticDefaultImports": true,
     "strict": true,
@@ -19,9 +19,9 @@
     "paths": {
       "@protocol/*": ["../protocol/src/*"],
       "@web/*": ["../web/src/*"],
-      "@playwright-test/*": ["../playwright-test/src/*"],
+      "@playwright/*": ["../playwright/src/*"],
       "playwright-core/lib/*": ["../playwright-core/src/*"],
-      "playwright-test/lib/*": ["../playwright-test/src/*"],
+      "playwright/lib/*": ["../playwright/src/*"],
     }
   },
   "include": ["src"],

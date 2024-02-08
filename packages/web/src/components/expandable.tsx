@@ -15,21 +15,22 @@
 */
 
 import * as React from 'react';
+import './expandable.css';
 
 export const Expandable: React.FunctionComponent<React.PropsWithChildren<{
   title: JSX.Element | string,
-  setExpanded: Function,
-  expanded: Boolean,
-  style?: React.CSSProperties,
-}>> = ({ title, children, setExpanded, expanded, style }) => {
-  return <div style={{ ...style, display: 'flex', flexDirection: 'column' }}>
-    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', whiteSpace: 'nowrap' }}>
+  setExpanded: (expanded: boolean) => void,
+  expanded: boolean,
+  expandOnTitleClick?: boolean,
+}>> = ({ title, children, setExpanded, expanded, expandOnTitleClick }) => {
+  return <div className={'expandable' + (expanded ? ' expanded' : '')}>
+    <div className='expandable-title' onClick={() => expandOnTitleClick && setExpanded(!expanded)}>
       <div
         className={'codicon codicon-' + (expanded ? 'chevron-down' : 'chevron-right')}
-        style={{ cursor: 'pointer', color: 'var(--vscode-foreground)', marginRight: '4px' }}
-        onClick={() => setExpanded(!expanded)} />
+        style={{ cursor: 'pointer', color: 'var(--vscode-foreground)', marginLeft: '5px' }}
+        onClick={() => !expandOnTitleClick && setExpanded(!expanded)} />
       {title}
     </div>
-    { expanded && <div style={{ display: 'flex', flex: 'auto', margin: '5px 0 5px 20px' }}>{children}</div> }
+    { expanded && <div style={{ marginLeft: 25 }}>{children}</div> }
   </div>;
 };

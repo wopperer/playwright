@@ -42,13 +42,13 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
 async def handle_dialog(dialog):
     print(dialog.message)
     await dialog.dismiss()
 
-async def run(playwright):
+async def run(playwright: Playwright):
     chromium = playwright.chromium
     browser = await chromium.launch()
     page = await browser.new_page()
@@ -63,13 +63,13 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
 def handle_dialog(dialog):
     print(dialog.message)
     dialog.dismiss()
 
-def run(playwright):
+def run(playwright: Playwright):
     chromium = playwright.chromium
     browser = chromium.launch()
     page = browser.new_page()
@@ -136,6 +136,12 @@ Returns when the dialog has been dismissed.
 - returns: <[string]>
 
 A message displayed in the dialog.
+
+## method: Dialog.page
+* since: v1.34
+- returns: <[null]|[Page]>
+
+The page that initiated this dialog, if available.
 
 ## method: Dialog.type
 * since: v1.8

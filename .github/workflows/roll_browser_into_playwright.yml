@@ -4,15 +4,20 @@ on:
   repository_dispatch:
     types: [roll_into_pw]
 
+env:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+permissions:
+  contents: write
+
 jobs:
   roll:
     runs-on: ubuntu-20.04
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v3
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
       with:
-        node-version: 14
-    - run: npm i -g npm@8
+        node-version: 18
     - run: npm ci
     - run: npm run build
     - name: Install dependencies
@@ -25,7 +30,7 @@ jobs:
       id: prepare-branch
       run: |
         BRANCH_NAME="roll-into-pw-${{ github.event.client_payload.browser }}/${{ github.event.client_payload.revision }}"
-        echo "::set-output name=BRANCH_NAME::$BRANCH_NAME"
+        echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
         git config --global user.name github-actions
         git config --global user.email 41898282+github-actions[bot]@users.noreply.github.com
         git checkout -b "$BRANCH_NAME"

@@ -6,12 +6,15 @@ Test runner notifies the reporter about various events during test execution. Al
 
 You can create a custom reporter by implementing a class with some of the reporter methods. Make sure to export this class as default.
 
-```js tab=js-js
-// my-awesome-reporter.js
+```js tab=js-js title="my-awesome-reporter.js"
 // @ts-check
 
 /** @implements {import('@playwright/test/reporter').Reporter} */
 class MyReporter {
+  constructor(options) {
+    console.log(`my-awesome-reporter setup with customOption set to ${options.customOption}`);
+  }
+
   onBegin(config, suite) {
     console.log(`Starting the run with ${suite.allTests().length} tests`);
   }
@@ -32,11 +35,16 @@ class MyReporter {
 module.exports = MyReporter;
 ```
 
-```js tab=js-ts
-// my-awesome-reporter.ts
-import { Reporter, FullConfig, Suite, TestCase, TestResult, FullResult } from '@playwright/test/reporter';
+```js tab=js-ts title="my-awesome-reporter.ts"
+import type {
+  Reporter, FullConfig, Suite, TestCase, TestResult, FullResult
+} from '@playwright/test/reporter';
 
 class MyReporter implements Reporter {
+  constructor(options: { customOption?: string } = {}) {
+    console.log(`my-awesome-reporter setup with customOption set to ${options.customOption}`);
+  }
+
   onBegin(config: FullConfig, suite: Suite) {
     console.log(`Starting the run with ${suite.allTests().length} tests`);
   }
@@ -58,23 +66,11 @@ export default MyReporter;
 
 Now use this reporter with [`property: TestConfig.reporter`]. Learn more about [using reporters](../test-reporters.md).
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  reporter: './my-awesome-reporter.js',
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-  reporter: './my-awesome-reporter.ts',
+  reporter: ['./my-awesome-reporter.ts', { customOption: 'some value' }],
 });
 ```
 
@@ -84,6 +80,7 @@ Here is a typical order of reporter calls:
 * [`method: Reporter.onStepBegin`] and [`method: Reporter.onStepEnd`] are called for each executed step inside the test. When steps are executed, test run has not finished yet.
 * [`method: Reporter.onTestEnd`] is called when test run has finished. By this time, [TestResult] is complete and you can use [`property: TestResult.status`], [`property: TestResult.error`] and more.
 * [`method: Reporter.onEnd`] is called once after all tests that should run had finished.
+* [`method: Reporter.onExit`] is called immediately before the test runner exits.
 
 Additionally, [`method: Reporter.onStdOut`] and [`method: Reporter.onStdErr`] are called when standard output is produced in the worker process, possibly during a test execution,
 and [`method: Reporter.onError`] is called when something went wrong outside of the test execution.
@@ -109,15 +106,20 @@ The root suite that contains all projects, files and test cases.
 
 ## optional async method: Reporter.onEnd
 * since: v1.10
+- `result` ?<[Object]>
+  - `status` ?<[FullStatus]<"passed"|"failed"|"timedout"|"interrupted">>
 
-Called after all tests has been run, or testing has been interrupted. Note that this method may return a [Promise] and Playwright Test will await it.
+Called after all tests have been run, or testing has been interrupted. Note that this method may return a [Promise] and Playwright Test will await it.
+Reporter is allowed to override the status and hence affect the exit code of the test runner.
 
 ### param: Reporter.onEnd.result
 * since: v1.10
 - `result` <[Object]>
-  - `status` <[FullStatus]<"passed"|"failed"|"timedout"|"interrupted">>
+  - `status` <[FullStatus]<"passed"|"failed"|"timedout"|"interrupted">> Test run status.
+  - `startTime` <[Date]> Test run start wall time.
+  - `duration` <[int]> Test run duration in milliseconds.
 
-Result of the full test run.
+Result of the full test run, `status` can be one of:
 * `'passed'` - Everything went as expected.
 * `'failed'` - Any test has failed.
 * `'timedout'` - The [`property: TestConfig.globalTimeout`] has been reached.
@@ -134,6 +136,12 @@ Called on some global error, for example unhandled exception in the worker proce
 
 The error.
 
+## optional async method: Reporter.onExit
+* since: v1.33
+
+Called immediately before test runner exists. At this point all the reporters
+have received the [`method: Reporter.onEnd`] signal, so all the reports should
+be build. You can run the code that uploads the reports in this hook.
 
 ## optional method: Reporter.onStdErr
 * since: v1.10

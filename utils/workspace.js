@@ -22,6 +22,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const child_process = require('child_process');
 
 const readJSON = async (filePath) => JSON.parse(await fs.promises.readFile(filePath, 'utf8'));
 const writeJSON = async (filePath, json) => {
@@ -106,13 +107,8 @@ class Workspace {
         await fs.promises.copyFile(fromPath, toPath);
       }
 
-      // 2. Make sure package-lock and package's package.json are consistent.
-      //    All manual package-lock management is a workaround for
-      //    https://github.com/npm/cli/issues/3940
-      const pkgLockEntry = packageLock['packages']['packages/' + path.basename(pkg.path)];
-      const depLockEntry = packageLock['dependencies'][pkg.name];
+      // 2. Make sure package's package.jsons are consistent.
       if (!pkg.isPrivate) {
-        pkgLockEntry.version = version;
         pkg.packageJSON.version = version;
         pkg.packageJSON.repository = workspacePackageJSON.repository;
         pkg.packageJSON.engines = workspacePackageJSON.engines;
@@ -120,13 +116,8 @@ class Workspace {
         pkg.packageJSON.author = workspacePackageJSON.author;
         pkg.packageJSON.license = workspacePackageJSON.license;
       }
+
       for (const otherPackage of this._packages) {
-        if (pkgLockEntry.dependencies && pkgLockEntry.dependencies[otherPackage.name])
-          pkgLockEntry.dependencies[otherPackage.name] = version;
-        if (pkgLockEntry.devDependencies && pkgLockEntry.devDependencies[otherPackage.name])
-          pkgLockEntry.devDependencies[otherPackage.name] = version;
-        if (depLockEntry.requires && depLockEntry.requires[otherPackage.name])
-          depLockEntry.requires[otherPackage.name] = version;
         if (pkg.packageJSON.dependencies && pkg.packageJSON.dependencies[otherPackage.name])
           pkg.packageJSON.dependencies[otherPackage.name] = version;
         if (pkg.packageJSON.devDependencies && pkg.packageJSON.devDependencies[otherPackage.name])
@@ -134,7 +125,9 @@ class Workspace {
       }
       await maybeWriteJSON(pkg.packageJSONPath, pkg.packageJSON);
     }
-    await maybeWriteJSON(packageLockPath, packageLock);
+  
+    // Re-run npm i to make package-lock dirty.
+    child_process.execSync('npm i');
     return hasChanges;
   }
 }
@@ -145,7 +138,7 @@ const workspace = new Workspace(ROOT_PATH, [
   new PWPackage({
     name: 'playwright',
     path: path.join(ROOT_PATH, 'packages', 'playwright'),
-    // We copy README.md additionally for Playwright so that it looks nice on NPM.
+    // We copy README.md additionally for playwright so that it looks nice on NPM.
     files: [...LICENCE_FILES, 'README.md'],
   }),
   new PWPackage({
@@ -156,7 +149,8 @@ const workspace = new Workspace(ROOT_PATH, [
   new PWPackage({
     name: '@playwright/test',
     path: path.join(ROOT_PATH, 'packages', 'playwright-test'),
-    files: LICENCE_FILES,
+    // We copy README.md additionally for @playwright/test so that it looks nice on NPM.
+    files: [...LICENCE_FILES, 'README.md'],
   }),
   new PWPackage({
     name: 'playwright-webkit',
@@ -174,8 +168,33 @@ const workspace = new Workspace(ROOT_PATH, [
     files: LICENCE_FILES,
   }),
   new PWPackage({
+    name: '@playwright/browser-webkit',
+    path: path.join(ROOT_PATH, 'packages', 'playwright-browser-webkit'),
+    files: LICENCE_FILES,
+  }),
+  new PWPackage({
+    name: '@playwright/browser-firefox',
+    path: path.join(ROOT_PATH, 'packages', 'playwright-browser-firefox'),
+    files: LICENCE_FILES,
+  }),
+  new PWPackage({
+    name: '@playwright/browser-chromium',
+    path: path.join(ROOT_PATH, 'packages', 'playwright-browser-chromium'),
+    files: LICENCE_FILES,
+  }),
+  new PWPackage({
+    name: '@playwright/experimental-ct-core',
+    path: path.join(ROOT_PATH, 'packages', 'playwright-ct-core'),
+    files: ['LICENSE'],
+  }),
+  new PWPackage({
     name: '@playwright/experimental-ct-react',
     path: path.join(ROOT_PATH, 'packages', 'playwright-ct-react'),
+    files: ['LICENSE'],
+  }),
+  new PWPackage({
+    name: '@playwright/experimental-ct-react17',
+    path: path.join(ROOT_PATH, 'packages', 'playwright-ct-react17'),
     files: ['LICENSE'],
   }),
   new PWPackage({
@@ -217,6 +236,10 @@ async function parseCLI() {
       const hasChanges = await workspace.ensureConsistent();
       if (hasChanges)
         die(`\n  ERROR: workspace is inconsistent! Run '//utils/workspace.js --ensure-consistent' and commit changes!`);
+      // Ensure lockfileVersion is 3
+      const packageLock = require(ROOT_PATH +  '/package-lock.json');
+      if (packageLock.lockfileVersion !== 3)
+        die(`\n  ERROR: package-lock.json lockfileVersion must be 3`);
     },
     '--list-public-package-paths': () => {
       for (const pkg of workspace.packages()) {

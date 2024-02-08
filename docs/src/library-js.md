@@ -3,6 +3,8 @@ id: library
 title: "Library"
 ---
 
+## Introduction
+
 Playwright Library provides unified APIs for launching and interacting with browsers, while Playwright Test provides all this plus a fully managed end-to-end Test Runner and experience.
 
 Under most circumstances, for end-to-end testing, you'll want to use `@playwright/test` (Playwright Test), and not `playwright` (Playwright Library) directly. To get started with Playwright Test, follow the [Getting Started Guide](./intro.md).
@@ -33,7 +35,7 @@ import assert from 'node:assert';
   // Teardown
   await context.close();
   await browser.close();
-})()
+})();
 ```
 
 ```js tab=js-js
@@ -55,7 +57,7 @@ const { chromium, devices } = require('playwright');
   // Teardown
   await context.close();
   await browser.close();
-})()
+})();
 ```
 
 Run it with `node my-script.js`.
@@ -99,8 +101,8 @@ The key differences to note are as follows:
 | | Library | Test |
 | - | - | - |
 | Installation | `npm install playwright` | `npm init playwright@latest` - note `install` vs. `init` |
-| Install browsers | Chromium, Firefox, WebKit are installed by default | `npx playwright install` or `npx playwright install chromium` for a single one |
-| `import`/`require` name | `playwright` | `@playwright/test` |
+| Install browsers | Install `@playwright/browser-chromium`, `@playwright/browser-firefox` and/or `@playwright/browser-webkit` | `npx playwright install` or `npx playwright install chromium` for a single one |
+| `import` from | `playwright` | `@playwright/test` |
 | Initialization | Explicitly need to: <ol><li>Pick a browser to use, e.g. `chromium`</li><li>Launch browser with [`method: BrowserType.launch`]</li><li>Create a context with [`method: Browser.newContext`], <em>and</em> pass any context options explicitly, e.g. `devices['iPhone 11']`</li><li>Create a page with [`method: BrowserContext.newPage`]</li></ol> | An isolated `page` and `context` are provided to each test out-of the box, along with other [built-in fixtures](./test-fixtures.md#built-in-fixtures). No explicit creation. If referenced by the test in it's arguments, the Test Runner will create them for the test. (i.e. lazy-initialization) |
 | Assertions | No built-in Web-First Assertions | [Web-First assertions](./test-assertions.md) like: <ul><li>[`method: PageAssertions.toHaveTitle`]</li><li>[`method: PageAssertions.toHaveScreenshot#1`]</li></ul> which auto-wait and retry for the condition to be met.|
 | Cleanup | Explicitly need to: <ol><li>Close context with [`method: BrowserContext.close`]</li><li>Close browser with [`method: Browser.close`]</li></ol> | No explicit close of [built-in fixtures](./test-fixtures.md#built-in-fixtures); the Test Runner will take care of it.
@@ -113,20 +115,30 @@ In addition to the above, Playwright Test, as a full-featured Test Runner, inclu
 - [Web-First Assertions](./test-assertions.md)
 - [Reporting](./test-reporters.md)
 - [Retries](./test-retries.md)
-- [Easily Enabled Tracing](./test-configuration.md#record-test-trace)
+- [Easily Enabled Tracing](./trace-viewer-intro.md)
 - and more…
 
 ## Usage
 
-Use npm or Yarn to install Playwright library in your Node.js project. See [system requirements](./troubleshooting.md#system-requirements).
+Use npm or Yarn to install Playwright library in your Node.js project. See [system requirements](./intro.md#system-requirements).
 
 ```bash
 npm i -D playwright
 ```
 
-This single command downloads the Playwright NPM package and browser binaries for Chromium, Firefox and WebKit. To modify this behavior see [managing browsers](./browsers.md#managing-browser-binaries).
+You will also need to install browsers - either manually or by adding a package that will do it for you automatically.
 
-Once installed, you can `require` Playwright in a Node.js script, and launch any of the 3 browsers (`chromium`, `firefox` and `webkit`).
+```bash
+# Download the Chromium, Firefox and WebKit browser
+npx playwright install chromium firefox webkit
+
+# Alternatively, add packages that will download a browser upon npm install
+npm i -D @playwright/browser-chromium @playwright/browser-firefox @playwright/browser-webkit
+```
+
+See [managing browsers](./browsers.md#managing-browser-binaries) for more options.
+
+Once installed, you can import Playwright in a Node.js script, and launch any of the 3 browsers (`chromium`, `firefox` and `webkit`).
 
 ```js
 const { chromium } = require('playwright');
@@ -149,7 +161,7 @@ Playwright APIs are asynchronous and return Promise objects. Our code examples u
 
 ## First script
 
-In our first script, we will navigate to `whatsmyuseragent.org` and take a screenshot in WebKit.
+In our first script, we will navigate to `https://playwright.dev/` and take a screenshot in WebKit.
 
 ```js
 const { webkit } = require('playwright');
@@ -157,7 +169,7 @@ const { webkit } = require('playwright');
 (async () => {
   const browser = await webkit.launch();
   const page = await browser.newPage();
-  await page.goto('http://whatsmyuseragent.org/');
+  await page.goto('https://playwright.dev/');
   await page.screenshot({ path: `example.png` });
   await browser.close();
 })();
@@ -171,10 +183,120 @@ firefox.launch({ headless: false, slowMo: 50 });
 
 ## Record scripts
 
-[Command line tools](./cli.md) can be used to record user interactions and generate JavaScript code.
+[Command line tools](./test-cli.md) can be used to record user interactions and generate JavaScript code.
 
 ```bash
 npx playwright codegen wikipedia.org
+```
+
+## Browser downloads
+
+To download Playwright browsers run:
+
+```bash
+# Explicitly download browsers
+npx playwright install
+```
+
+Alternatively, you can add `@playwright/browser-chromium`, `@playwright/browser-firefox` and `@playwright/browser-webkit` packages to automatically download the respective browser during the package installation.
+
+```bash
+# Use a helper package that downloads a browser on npm install
+npm install @playwright/browser-chromium
+```
+
+**Download behind a firewall or a proxy**
+
+Pass `HTTPS_PROXY` environment variable to download through a proxy.
+
+```bash tab=bash-bash lang=js
+# Manual
+HTTPS_PROXY=https://192.0.2.1 npx playwright install
+
+# Through @playwright/browser-chromium, @playwright/browser-firefox
+# and @playwright/browser-webkit helper packages
+HTTPS_PROXY=https://192.0.2.1 npm install
+```
+
+```batch tab=bash-batch lang=js
+# Manual
+set HTTPS_PROXY=https://192.0.2.1
+npx playwright install
+
+# Through @playwright/browser-chromium, @playwright/browser-firefox
+# and @playwright/browser-webkit helper packages
+set HTTPS_PROXY=https://192.0.2.1
+npm install
+```
+
+```powershell tab=bash-powershell lang=js
+# Manual
+$Env:HTTPS_PROXY=https://192.0.2.1
+npx playwright install
+
+# Through @playwright/browser-chromium, @playwright/browser-firefox
+# and @playwright/browser-webkit helper packages
+$Env:HTTPS_PROXY=https://192.0.2.1
+npm install
+```
+
+**Download from artifact repository**
+
+By default, Playwright downloads browsers from Microsoft's CDN. Pass `PLAYWRIGHT_DOWNLOAD_HOST` environment variable to download from an internal artifacts repository instead.
+
+```bash tab=bash-bash lang=js
+# Manual
+PLAYWRIGHT_DOWNLOAD_HOST=192.0.2.1 npx playwright install
+
+# Through @playwright/browser-chromium, @playwright/browser-firefox
+# and @playwright/browser-webkit helper packages
+PLAYWRIGHT_DOWNLOAD_HOST=192.0.2.1 npm install
+```
+
+```batch tab=bash-batch lang=js
+# Manual
+set PLAYWRIGHT_DOWNLOAD_HOST=192.0.2.1
+npx playwright install
+
+# Through @playwright/browser-chromium, @playwright/browser-firefox
+# and @playwright/browser-webkit helper packages
+set PLAYWRIGHT_DOWNLOAD_HOST=192.0.2.1
+npm install
+```
+
+```powershell tab=bash-powershell lang=js
+# Manual
+$Env:PLAYWRIGHT_DOWNLOAD_HOST=192.0.2.1
+npx playwright install
+
+# Through @playwright/browser-chromium, @playwright/browser-firefox
+# and @playwright/browser-webkit helper packages
+$Env:PLAYWRIGHT_DOWNLOAD_HOST=192.0.2.1
+npm install
+```
+
+**Skip browser download**
+
+In certain cases, it is desired to avoid browser downloads altogether because browser binaries are managed separately. This can be done by setting `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` variable before installing packages.
+
+```bash tab=bash-bash lang=js
+# When using @playwright/browser-chromium, @playwright/browser-firefox
+# and @playwright/browser-webkit helper packages
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install
+```
+
+```batch tab=bash-batch lang=js
+# When using @playwright/browser-chromium, @playwright/browser-firefox
+# and @playwright/browser-webkit helper packages
+set PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+npm install
+```
+
+```powershell tab=bash-powershell lang=js
+# When using @playwright/browser-chromium, @playwright/browser-firefox
+# and @playwright/browser-webkit helper packages
+$Env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+npm install
 ```
 
 ## TypeScript support
@@ -185,7 +307,7 @@ Playwright includes built-in support for TypeScript. Type definitions will be im
 Add the following to the top of your JavaScript file to get type-checking in VS Code or WebStorm.
 
 ```js
-//@ts-check
+// @ts-check
 // ...
 ```
 

@@ -14,9 +14,12 @@
  * limitations under the License.
  */
 
-import { debugLogger } from '../common/debugLogger';
+import { debugLogger } from '../utils/debugLogger';
+import type { BrowserContext } from './browserContext';
 import type { LocalUtils } from './localUtils';
 import type { Route } from './network';
+import type { URLMatch } from './types';
+import type { Page } from './page';
 
 type HarNotFoundAction = 'abort' | 'fallback';
 
@@ -24,21 +27,23 @@ export class HarRouter {
   private _localUtils: LocalUtils;
   private _harId: string;
   private _notFoundAction: HarNotFoundAction;
+  private _options: { urlMatch?: URLMatch; baseURL?: string; };
 
-  static async create(localUtils: LocalUtils, file: string, notFoundAction: HarNotFoundAction): Promise<HarRouter> {
+  static async create(localUtils: LocalUtils, file: string, notFoundAction: HarNotFoundAction, options: { urlMatch?: URLMatch }): Promise<HarRouter> {
     const { harId, error } = await localUtils._channel.harOpen({ file });
     if (error)
       throw new Error(error);
-    return new HarRouter(localUtils, harId!, notFoundAction);
+    return new HarRouter(localUtils, harId!, notFoundAction, options);
   }
 
-  private constructor(localUtils: LocalUtils, harId: string, notFoundAction: HarNotFoundAction) {
+  private constructor(localUtils: LocalUtils, harId: string, notFoundAction: HarNotFoundAction, options: { urlMatch?: URLMatch }) {
     this._localUtils = localUtils;
     this._harId = harId;
+    this._options = options;
     this._notFoundAction = notFoundAction;
   }
 
-  async handleRoute(route: Route) {
+  private async _handle(route: Route) {
     const request = route.request();
 
     const response = await this._localUtils._channel.harLookup({
@@ -57,6 +62,13 @@ export class HarRouter {
     }
 
     if (response.action === 'fulfill') {
+      // If the response status is -1, the request was canceled or stalled, so we just stall it here.
+      // See https://github.com/microsoft/playwright/issues/29311.
+      // TODO: it'd be better to abort such requests, but then we likely need to respect the timing,
+      // because the request might have been stalled for a long time until the very end of the
+      // test when HAR was recorded but we'd abort it immediately.
+      if (response.status === -1)
+        return;
       await route.fulfill({
         status: response.status,
         headers: Object.fromEntries(response.headers!.map(h => [h.name, h.value])),
@@ -75,6 +87,18 @@ export class HarRouter {
     }
 
     await route.fallback();
+  }
+
+  async addContextRoute(context: BrowserContext) {
+    await context.route(this._options.urlMatch || '**/*', route => this._handle(route));
+  }
+
+  async addPageRoute(page: Page) {
+    await page.route(this._options.urlMatch || '**/*', route => this._handle(route));
+  }
+
+  async [Symbol.asyncDispose]() {
+    await this.dispose();
   }
 
   dispose() {

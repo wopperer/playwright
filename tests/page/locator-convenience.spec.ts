@@ -24,10 +24,10 @@ it('should have a nice preview', async ({ page, server }) => {
   const check = page.locator('#check');
   const text = await inner.evaluateHandle(e => e.firstChild);
   await page.evaluate(() => 1);  // Give them a chance to calculate the preview.
-  expect(String(outer)).toBe('Locator@#outer');
-  expect(String(inner)).toBe('Locator@#outer >> #inner');
-  expect(String(text)).toBe('JSHandle@#text=Text,↵more text');
-  expect(String(check)).toBe('Locator@#check');
+  expect.soft(String(outer)).toBe(`locator('#outer')`);
+  expect.soft(String(inner)).toBe(`locator('#outer').locator('#inner')`);
+  expect.soft(String(text)).toBe(`JSHandle@#text=Text,↵more text`);
+  expect.soft(String(check)).toBe(`locator('#check')`);
 });
 
 it('getAttribute should work', async ({ page, server }) => {
@@ -142,6 +142,21 @@ it('isChecked should work', async ({ page }) => {
   expect(await page.isChecked('input')).toBe(false);
   const error = await page.isChecked('div').catch(e => e);
   expect(error.message).toContain('Not a checkbox or radio button');
+});
+
+it('isChecked should work for indeterminate input', async ({ page }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20190' });
+
+  await page.setContent(`<input type="checkbox" checked>`);
+  await page.locator('input').evaluate((e: HTMLInputElement) => e.indeterminate = true);
+
+  expect(await page.locator('input').isChecked()).toBe(true);
+  await expect(page.locator('input')).toBeChecked();
+
+  await page.locator('input').uncheck();
+
+  expect(await page.locator('input').isChecked()).toBe(false);
+  await expect(page.locator('input')).not.toBeChecked();
 });
 
 it('allTextContents should work', async ({ page }) => {

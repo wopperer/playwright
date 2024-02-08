@@ -23,7 +23,7 @@ it('should work with navigation @smoke', async ({ page, server }) => {
   const requests = new Map();
   await page.route('**/*', route => {
     requests.set(route.request().url().split('/').pop(), route.request());
-    route.continue();
+    void route.continue();
   });
   server.setRedirect('/rrredirect', '/frames/one-frame.html');
   await page.goto(server.PREFIX + '/rrredirect');
@@ -47,7 +47,7 @@ it('should intercept after a service worker', async ({ page, server, browserName
   await page.route('**/foo', route => {
     const slash = route.request().url().lastIndexOf('/');
     const name = route.request().url().substring(slash + 1);
-    route.fulfill({
+    void route.fulfill({
       status: 200,
       contentType: 'text/css',
       body: 'responseFromInterception:' + name
@@ -90,9 +90,19 @@ it('should work with glob', async () => {
   expect(globToRegex('foo*').test('foo/bar.js')).toBeFalsy();
   expect(globToRegex('http://localhost:3000/signin-oidc*').test('http://localhost:3000/signin-oidc/foo')).toBeFalsy();
   expect(globToRegex('http://localhost:3000/signin-oidc*').test('http://localhost:3000/signin-oidcnice')).toBeTruthy();
+
+  expect(globToRegex('**/three-columns/settings.html?**id=[a-z]**').test('http://mydomain:8080/blah/blah/three-columns/settings.html?id=settings-e3c58efe-02e9-44b0-97ac-dd138100cf7c&blah')).toBeTruthy();
+
+  expect(globToRegex('\\?')).toEqual(/^\?$/);
+  expect(globToRegex('\\')).toEqual(/^\\$/);
+  expect(globToRegex('\\\\')).toEqual(/^\\$/);
+  expect(globToRegex('\\[')).toEqual(/^\[$/);
+  expect(globToRegex('[a-z]')).toEqual(/^[a-z]$/);
+  expect(globToRegex('$^+.\\*()|\\?\\{\\}\\[\\]')).toEqual(/^\$\^\+\.\*\(\)\|\?\{\}\[\]$/);
 });
 
-it('should intercept network activity from worker', async function({ page, server, isAndroid }) {
+it('should intercept network activity from worker', async function({ page, server, isAndroid, browserName, browserMajorVersion }) {
+  it.skip(browserName === 'firefox' && browserMajorVersion < 114, 'https://github.com/microsoft/playwright/issues/21760');
   it.skip(isAndroid);
 
   await page.goto(server.EMPTY_PAGE);
@@ -146,7 +156,7 @@ it('should work with regular expression passed from a different context', async 
     expect(request.resourceType()).toBe('document');
     expect(request.frame() === page.mainFrame()).toBe(true);
     expect(request.frame().url()).toBe('about:blank');
-    route.continue();
+    void route.continue();
     intercepted = true;
   });
 
@@ -161,4 +171,22 @@ it('should not break remote worker importScripts', async ({ page, server, browse
   });
   await page.goto(server.PREFIX + '/worker/worker-http-import.html');
   await page.waitForSelector("#status:has-text('finished')");
+});
+
+it('should disable memory cache when intercepting', async ({ page, server }) => {
+  let interceted = 0;
+  await page.route('**/page.html', route => {
+    ++interceted;
+    void route.fulfill({
+      body: 'success'
+    });
+  });
+  await page.goto(server.PREFIX + '/page.html');
+  expect(await page.locator('body').textContent()).toContain('success');
+  await page.goto(server.EMPTY_PAGE);
+  await expect(page).toHaveURL(server.EMPTY_PAGE);
+  expect(interceted).toBe(1);
+  await page.goBack();
+  await expect(page).toHaveURL(server.PREFIX + '/page.html');
+  expect(interceted).toBe(2);
 });

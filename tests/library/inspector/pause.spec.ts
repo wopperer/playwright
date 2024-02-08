@@ -30,6 +30,20 @@ it('should resume when closing inspector', async ({ page, recorderPageGetter, cl
   await scriptPromise;
 });
 
+it('should not reset timeouts', async ({ page, recorderPageGetter, closeRecorder, server }) => {
+  page.context().setDefaultNavigationTimeout(1000);
+  page.context().setDefaultTimeout(1000);
+
+  const pausePromise = page.pause();
+  await recorderPageGetter();
+  await closeRecorder();
+  await pausePromise;
+
+  server.setRoute('/empty.html', () => {});
+  const error = await page.goto(server.EMPTY_PAGE).catch(e => e);
+  expect(error.message).toContain('page.goto: Timeout 1000ms exceeded.');
+});
+
 it.describe('pause', () => {
   it.skip(({ mode }) => mode !== 'default');
 
@@ -144,25 +158,36 @@ it.describe('pause', () => {
     await scriptPromise;
   });
 
-  it('should highlight pointer', async ({ page, recorderPageGetter }) => {
-    const actionPointPromise = waitForTestLog<{ x: number, y: number }>(page, 'Action point for test: ');
-    await page.setContent('<button>Submit</button>');
+  it('should highlight pointer, only in main frame', async ({ page, recorderPageGetter }) => {
+    await page.setContent(`
+      <iframe
+        style="margin: 100px;"
+        srcdoc="<button style='margin: 80px;'>Submit</button>">
+      </iframe>
+    `);
     const scriptPromise = (async () => {
       await page.pause();
-      await page.click('button');
+      await page.frameLocator('iframe').locator('button').click();
     })();
     const recorderPage = await recorderPageGetter();
     await recorderPage.click('[title="Step over (F10)"]');
 
-    const { x, y } = await actionPointPromise;
-    const button = await page.waitForSelector('button');
+    const iframe = page.frames()[1];
+    const button = await iframe.waitForSelector('button');
     const box1 = await button.boundingBox();
+    const actionPoint = await page.waitForSelector('x-pw-action-point');
+    const box2 = await actionPoint.boundingBox();
 
-    const x1 = box1.x + box1.width / 2;
-    const y1 = box1.y + box1.height / 2;
+    const iframeActionPoint = await iframe.$('x-pw-action-point');
+    expect(await iframeActionPoint?.boundingBox()).toBeFalsy();
 
-    expect(Math.abs(x1 - x) < 2).toBeTruthy();
-    expect(Math.abs(y1 - y) < 2).toBeTruthy();
+    const x1 = box1!.x + box1!.width / 2;
+    const y1 = box1!.y + box1!.height / 2;
+    const x2 = box2!.x + box2!.width / 2;
+    const y2 = box2!.y + box2!.height / 2;
+
+    expect(Math.abs(x1 - x2) < 2).toBeTruthy();
+    expect(Math.abs(y1 - y2) < 2).toBeTruthy();
 
     await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
@@ -217,8 +242,6 @@ it.describe('pause', () => {
     await recorderPage.waitForSelector('.source-line-paused:has-text("page.pause();  // 2")');
     expect(await sanitizeLog(recorderPage)).toEqual([
       'page.pause- XXms',
-      'tracing.start- XXms',
-      'tracing.stop- XXms',
       'page.pause',
     ]);
     await recorderPage.click('[title="Resume (F8)"]');
@@ -294,7 +317,7 @@ it.describe('pause', () => {
     })().catch(e => e);
     const recorderPage = await recorderPageGetter();
     await recorderPage.click('[title="Resume (F8)"]');
-    await recorderPage.waitForSelector('.source-line-error');
+    await recorderPage.waitForSelector('.source-line-error-underline');
     expect(await sanitizeLog(recorderPage)).toEqual([
       'page.pause- XXms',
       'page.getByRole(\'button\').isChecked()- XXms',
@@ -362,15 +385,41 @@ it.describe('pause', () => {
     const recorderPage = await recorderPageGetter();
 
     const box1Promise = waitForTestLog<Box>(page, 'Highlight box for test: ');
-    await recorderPage.click('.toolbar .CodeMirror');
+    await recorderPage.getByText('Locator', { exact: true }).click();
+    await recorderPage.locator('.tabbed-pane .CodeMirror').click();
     await recorderPage.keyboard.type('getByText(\'Submit\')');
     const box1 = await box1Promise;
 
     const button = await page.$('text=Submit');
-    const box2 = await button.boundingBox();
-    expect(roundBox(box1)).toEqual(roundBox(box2));
+    const box2 = await button!.boundingBox();
+    expect(roundBox(box1)).toEqual(roundBox(box2!));
     await recorderPage.click('[title="Resume (F8)"]');
     await scriptPromise;
+  });
+
+  it('should highlight on explore (csharp)', async ({ page, recorderPageGetter }) => {
+    process.env.TEST_INSPECTOR_LANGUAGE = 'csharp';
+    try {
+      await page.setContent('<button>Submit</button>');
+      const scriptPromise = (async () => {
+        await page.pause();
+      })();
+      const recorderPage = await recorderPageGetter();
+
+      const box1Promise = waitForTestLog<Box>(page, 'Highlight box for test: ');
+      await recorderPage.getByText('Locator', { exact: true }).click();
+      await recorderPage.locator('.tabbed-pane .CodeMirror').click();
+      await recorderPage.keyboard.type('GetByText("Submit")');
+      const box1 = await box1Promise;
+
+      const button = await page.$('text=Submit');
+      const box2 = await button.boundingBox();
+      expect(roundBox(box1)).toEqual(roundBox(box2));
+      await recorderPage.click('[title="Resume (F8)"]');
+      await scriptPromise;
+    } finally {
+      delete process.env.TEST_INSPECTOR_LANGUAGE;
+    }
   });
 
   it('should not prevent key events', async ({ page, recorderPageGetter }) => {
@@ -424,7 +473,7 @@ it.describe('pause', () => {
 
     const box1Promise = waitForTestLog<Box>(page, 'Highlight box for test: ');
     await recorderPage.click('[title="Step over (F10)"]');
-    const box2 = roundBox(await page.locator('#target').boundingBox());
+    const box2 = roundBox((await page.locator('#target').boundingBox())!);
     const box1 = roundBox(await box1Promise);
     expect(box1).toEqual(box2);
 
@@ -436,7 +485,7 @@ it.describe('pause', () => {
 async function sanitizeLog(recorderPage: Page): Promise<string[]> {
   const results = [];
   for (const entry of await recorderPage.$$('.call-log-call')) {
-    const header =  (await (await entry.$('.call-log-call-header')).textContent()).replace(/— [\d.]+(ms|s)/, '- XXms');
+    const header =  (await (await entry.$('.call-log-call-header'))!.textContent())!.replace(/— [\d.]+(ms|s)/, '- XXms');
     results.push(header.replace(/page\.waitForEvent\(console\).*/, 'page.waitForEvent(console)'));
     results.push(...await entry.$$eval('.call-log-message', ee => ee.map(e => {
       return (e.classList.contains('error') ? 'error: ' : '') + e.textContent;

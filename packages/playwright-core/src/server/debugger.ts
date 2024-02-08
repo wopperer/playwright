@@ -18,7 +18,7 @@ import { EventEmitter } from 'events';
 import { debugMode, isUnderTest, monotonicTime } from '../utils';
 import { BrowserContext } from './browserContext';
 import type { CallMetadata, InstrumentationListener, SdkObject } from './instrumentation';
-import { commandsWithTracingSnapshots, pausesBeforeInputActions } from '../protocol/debug';
+import { commandsWithTracingSnapshots, pausesBeforeInputActions, slowMoActions } from '../protocol/debug';
 
 const symbol = Symbol('Debugger');
 
@@ -120,6 +120,8 @@ export class Debugger extends EventEmitter implements InstrumentationListener {
 }
 
 function shouldPauseOnCall(sdkObject: SdkObject, metadata: CallMetadata): boolean {
+  if (sdkObject.attribution.playwright.options.isServer)
+    return false;
   if (!sdkObject.attribution.browser?.options.headful && !isUnderTest())
     return false;
   return metadata.method === 'pause';
@@ -141,5 +143,5 @@ function shouldPauseBeforeStep(metadata: CallMetadata): boolean {
 }
 
 export function shouldSlowMo(metadata: CallMetadata): boolean {
-  return commandsWithTracingSnapshots.has(metadata.type + '.' + metadata.method);
+  return slowMoActions.has(metadata.type + '.' + metadata.method);
 }

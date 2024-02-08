@@ -36,11 +36,11 @@ export const testModeTest = test.extend<TestModeTestFixtures, TestModeWorkerOpti
   mode: ['default', { scope: 'worker', option: true }],
   playwright: [async ({ mode }, run) => {
     const testMode = {
-      default: new DefaultTestMode(),
-      docker: new DefaultTestMode(),
-      service: new DefaultTestMode(),
-      driver: new DriverTestMode(),
-      service2: new DefaultTestMode(),
+      'default': new DefaultTestMode(),
+      'service': new DefaultTestMode(),
+      'service2': new DefaultTestMode(),
+      'service-grid': new DefaultTestMode(),
+      'driver': new DriverTestMode(),
     }[mode];
     require('playwright-core/lib/utils').setUnderTest();
     const playwright = await testMode.setup();

@@ -117,6 +117,11 @@ it('getByLabel should work with aria-label', async ({ page }) => {
   expect(await page.getByLabel('Name').evaluate(e => e.id)).toBe('target');
 });
 
+it('getByLabel should ignore empty aria-label', async ({ page }) => {
+  await page.setContent(`<label for=target>Last Name</label><input id=target type=text aria-label>`);
+  expect(await page.getByLabel('Last Name').evaluate(e => e.id)).toBe('target');
+});
+
 it('getByLabel should prioritize aria-labelledby over aria-label', async ({ page }) => {
   await page.setContent(`<label id=other-label>Other</label><input id=target aria-label="Name" aria-labelledby=other-label>`);
   expect(await page.getByLabel('Other').evaluate(e => e.id)).toBe('target');
@@ -172,12 +177,12 @@ wo"rld</label><input id=control />`);
     input.setAttribute('title', 'hello my\nwo"rld');
     input.setAttribute('alt', 'hello my\nwo"rld');
   });
-  await expect(page.getByText('hello my\nwo"rld')).toHaveAttribute('id', 'label');
-  await expect(page.getByText('hello       my     wo"rld')).toHaveAttribute('id', 'label');
-  await expect(page.getByLabel('hello my\nwo"rld')).toHaveAttribute('id', 'control');
-  await expect(page.getByPlaceholder('hello my\nwo"rld')).toHaveAttribute('id', 'control');
-  await expect(page.getByAltText('hello my\nwo"rld')).toHaveAttribute('id', 'control');
-  await expect(page.getByTitle('hello my\nwo"rld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByText('hello my\nwo"rld')).toHaveAttribute('id', 'label');
+  await expect.soft(page.getByText('hello       my     wo"rld')).toHaveAttribute('id', 'label');
+  await expect.soft(page.getByLabel('hello my\nwo"rld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByPlaceholder('hello my\nwo"rld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByAltText('hello my\nwo"rld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByTitle('hello my\nwo"rld')).toHaveAttribute('id', 'control');
 
   await page.setContent(`<label id=label for=control>Hello my
 world</label><input id=control />`);
@@ -186,12 +191,12 @@ world</label><input id=control />`);
     input.setAttribute('title', 'hello my\nworld');
     input.setAttribute('alt', 'hello my\nworld');
   });
-  await expect(page.getByText('hello my\nworld')).toHaveAttribute('id', 'label');
-  await expect(page.getByText('hello        my    world')).toHaveAttribute('id', 'label');
-  await expect(page.getByLabel('hello my\nworld')).toHaveAttribute('id', 'control');
-  await expect(page.getByPlaceholder('hello my\nworld')).toHaveAttribute('id', 'control');
-  await expect(page.getByAltText('hello my\nworld')).toHaveAttribute('id', 'control');
-  await expect(page.getByTitle('hello my\nworld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByText('hello my\nworld')).toHaveAttribute('id', 'label');
+  await expect.soft(page.getByText('hello        my    world')).toHaveAttribute('id', 'label');
+  await expect.soft(page.getByLabel('hello my\nworld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByPlaceholder('hello my\nworld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByAltText('hello my\nworld')).toHaveAttribute('id', 'control');
+  await expect.soft(page.getByTitle('hello my\nworld')).toHaveAttribute('id', 'control');
 
   await page.setContent(`<div id=target title="my title">Text here</div>`);
   await expect.soft(page.getByTitle('my title', { exact: true })).toHaveCount(1, { timeout: 500 });
@@ -199,6 +204,25 @@ world</label><input id=control />`);
   await expect.soft(page.getByTitle('my t\\itle', { exact: true })).toHaveCount(0, { timeout: 500 });
   await expect.soft(page.getByTitle('my t\\\itle', { exact: true })).toHaveCount(0, { timeout: 500 });
   await expect.soft(page.getByTitle('my t\\\\itle', { exact: true })).toHaveCount(0, { timeout: 500 });
+
+  await page.setContent(`<label for=target>foo &gt;&gt; bar</label><input id=target>`);
+  await page.$eval('input', input => {
+    input.setAttribute('placeholder', 'foo >> bar');
+    input.setAttribute('title', 'foo >> bar');
+    input.setAttribute('alt', 'foo >> bar');
+  });
+  expect.soft(await page.getByText('foo >> bar').textContent()).toBe('foo >> bar');
+  await expect.soft(page.locator('label')).toHaveText('foo >> bar');
+  await expect.soft(page.getByText('foo >> bar')).toHaveText('foo >> bar');
+  expect.soft(await page.getByText(/foo >> bar/).textContent()).toBe('foo >> bar');
+  await expect.soft(page.getByLabel('foo >> bar')).toHaveAttribute('id', 'target');
+  await expect.soft(page.getByLabel(/foo >> bar/)).toHaveAttribute('id', 'target');
+  await expect.soft(page.getByPlaceholder('foo >> bar')).toHaveAttribute('id', 'target');
+  await expect.soft(page.getByAltText('foo >> bar')).toHaveAttribute('id', 'target');
+  await expect.soft(page.getByTitle('foo >> bar')).toHaveAttribute('id', 'target');
+  await expect.soft(page.getByPlaceholder(/foo >> bar/)).toHaveAttribute('id', 'target');
+  await expect.soft(page.getByAltText(/foo >> bar/)).toHaveAttribute('id', 'target');
+  await expect.soft(page.getByTitle(/foo >> bar/)).toHaveAttribute('id', 'target');
 });
 
 it('getByRole escaping', async ({ page }) => {

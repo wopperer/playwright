@@ -44,14 +44,14 @@ Continues route's request with optional overrides.
 **Usage**
 
 ```js
-await page.route('**/*', (route, request) => {
+await page.route('**/*', async (route, request) => {
   // Override headers
   const headers = {
     ...request.headers(),
     foo: 'foo-value', // set "foo" header
     bar: undefined, // remove "bar" header
   };
-  route.continue({headers});
+  await route.continue({ headers });
 });
 ```
 
@@ -70,7 +70,7 @@ async def handle(route, request):
     # override headers
     headers = {
         **request.headers,
-        "foo": "foo-value" # set "foo" header
+        "foo": "foo-value", # set "foo" header
         "bar": None # remove "bar" header
     }
     await route.continue_(headers=headers)
@@ -83,7 +83,7 @@ def handle(route, request):
     # override headers
     headers = {
         **request.headers,
-        "foo": "foo-value" # set "foo" header
+        "foo": "foo-value", # set "foo" header
         "bar": None # remove "bar" header
     }
     route.continue_(headers=headers)
@@ -99,6 +99,10 @@ await page.RouteAsync("**/*", route =>
     route.ContinueAsync(headers);
 });
 ```
+
+**Details**
+
+Note that any overrides such as [`option: url`] or [`option: headers`] only apply to the request being routed. If this request results in a redirect, overrides will not be applied to the new redirected request. If you want to propagate a header through redirects, use the combination of [`method: Route.fetch`] and [`method: Route.fulfill`] instead.
 
 ### option: Route.continue.url
 * since: v1.8
@@ -150,17 +154,17 @@ in the end will be aborted by the first registered route.
 **Usage**
 
 ```js
-await page.route('**/*', route => {
+await page.route('**/*', async route => {
   // Runs last.
-  route.abort();
+  await route.abort();
 });
-await page.route('**/*', route => {
+await page.route('**/*', async route => {
   // Runs second.
-  route.fallback();
+  await route.fallback();
 });
-await page.route('**/*', route => {
+await page.route('**/*', async route => {
   // Runs first.
-  route.fallback();
+  await route.fallback();
 });
 ```
 
@@ -216,9 +220,9 @@ GET requests vs POST requests as in the example below.
 
 ```js
 // Handle GET requests.
-await page.route('**/*', route => {
+await page.route('**/*', async route => {
   if (route.request().method() !== 'GET') {
-    route.fallback();
+    await route.fallback();
     return;
   }
   // Handling GET only.
@@ -226,9 +230,9 @@ await page.route('**/*', route => {
 });
 
 // Handle POST requests.
-await page.route('**/*', route => {
+await page.route('**/*', async route => {
   if (route.request().method() !== 'POST') {
-    route.fallback();
+    await route.fallback();
     return;
   }
   // Handling POST only.
@@ -260,7 +264,7 @@ page.route("**/*", route -> {
 
 ```python async
 # Handle GET requests.
-def handle_post(route):
+def handle_get(route):
     if route.request.method != "GET":
         route.fallback()
         return
@@ -281,7 +285,7 @@ await page.route("**/*", handle_post)
 
 ```python sync
 # Handle GET requests.
-def handle_post(route):
+def handle_get(route):
     if route.request.method != "GET":
         route.fallback()
         return
@@ -326,14 +330,14 @@ One can also modify request while falling back to the subsequent handler, that w
 route handler can modify url, method, headers and postData of the request.
 
 ```js
-await page.route('**/*', (route, request) => {
+await page.route('**/*', async (route, request) => {
   // Override headers
   const headers = {
     ...request.headers(),
     foo: 'foo-value', // set "foo" header
     bar: undefined, // remove "bar" header
   };
-  route.fallback({headers});
+  await route.fallback({ headers });
 });
 ```
 
@@ -352,7 +356,7 @@ async def handle(route, request):
     # override headers
     headers = {
         **request.headers,
-        "foo": "foo-value" # set "foo" header
+        "foo": "foo-value", # set "foo" header
         "bar": None # remove "bar" header
     }
     await route.fallback(headers=headers)
@@ -365,7 +369,7 @@ def handle(route, request):
     # override headers
     headers = {
         **request.headers,
-        "foo": "foo-value" # set "foo" header
+        "foo": "foo-value", # set "foo" header
         "bar": None # remove "bar" header
     }
     route.fallback(headers=headers)
@@ -482,11 +486,28 @@ await page.RouteAsync("https://dog.ceo/api/breeds/list/all", async route =>
 });
 ```
 
+**Details**
+
+Note that [`option: headers`] option will apply to the fetched request as well as any redirects initiated by it. If you want to only apply [`option: headers`] to the original request, but not to redirects, look into [`method: Route.continue`] instead.
+
 ### option: Route.fetch.url
 * since: v1.29
 - `url` <[string]>
 
 If set changes the request URL. New URL must have same protocol as original one.
+
+### option: Route.fetch.maxRedirects
+* since: v1.31
+- `maxRedirects` <[int]>
+
+Maximum number of request redirects that will be followed automatically. An error will be thrown if the number is exceeded.
+Defaults to `20`. Pass `0` to not follow redirects.
+
+### option: Route.fetch.timeout
+* since: v1.33
+- `timeout` <[float]>
+
+Request timeout in milliseconds. Defaults to `30000` (30 seconds). Pass `0` to disable timeout.
 
 ### option: Route.fetch.method
 * since: v1.29
@@ -533,8 +554,8 @@ Fulfills route's request with given response.
 An example of fulfilling all requests with 404 responses:
 
 ```js
-await page.route('**/*', route => {
-  route.fulfill({
+await page.route('**/*', async route => {
+  await route.fulfill({
     status: 404,
     contentType: 'text/plain',
     body: 'Not Found!'
@@ -570,8 +591,8 @@ await page.RouteAsync("**/*", route => route.FulfillAsync(new ()
 {
     Status = 404,
     ContentType = "text/plain",
-    Body = "Not Found!")
-});
+    Body = "Not Found!"
+}));
 ```
 
 An example of serving static file:

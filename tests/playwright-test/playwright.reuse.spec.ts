@@ -21,7 +21,7 @@ import fs from 'fs';
 test('should reuse context', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'src/reuse.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       let lastContextGuid;
       test('one', async ({ context }) => {
         lastContextGuid = context._guid;
@@ -66,7 +66,7 @@ test('should not reuse context with video if mode=when-possible', async ({ runIn
       };
     `,
     'src/reuse.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       let lastContextGuid;
 
       test('one', async ({ context }) => {
@@ -93,7 +93,7 @@ test('should reuse context and disable video if mode=force', async ({ runInlineT
       };
     `,
     'reuse.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       let lastContextGuid;
 
       test('one', async ({ context, page }) => {
@@ -122,7 +122,7 @@ test('should reuse context with trace if mode=when-possible', async ({ runInline
       };
     `,
     'reuse.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       let lastContextGuid;
 
       test('one', async ({ context, page }) => {
@@ -144,28 +144,42 @@ test('should reuse context with trace if mode=when-possible', async ({ runInline
   expect(result.passed).toBe(2);
 
   const trace1 = await parseTrace(testInfo.outputPath('test-results', 'reuse-one', 'trace.zip'));
-  expect(trace1.actions).toEqual([
-    'browserContext.newPage',
+  expect(trace1.actionTree).toEqual([
+    'Before Hooks',
+    '  fixture: browser',
+    '    browserType.launch',
+    '  fixture: context',
+    '  fixture: page',
+    '    browserContext.newPage',
     'page.setContent',
     'page.click',
+    'After Hooks',
+    '  fixture: page',
+    '  fixture: context',
   ]);
-  expect(trace1.events.some(e => e.type === 'frame-snapshot')).toBe(true);
+  expect(trace1.traceModel.storage().snapshotsForTest().length).toBeGreaterThan(0);
   expect(fs.existsSync(testInfo.outputPath('test-results', 'reuse-one', 'trace-1.zip'))).toBe(false);
 
   const trace2 = await parseTrace(testInfo.outputPath('test-results', 'reuse-two', 'trace.zip'));
-  expect(trace2.actions).toEqual([
+  expect(trace2.actionTree).toEqual([
+    'Before Hooks',
+    '  fixture: context',
+    '  fixture: page',
+    'expect.toBe',
     'page.setContent',
     'page.fill',
     'locator.click',
+    'After Hooks',
+    '  fixture: page',
+    '  fixture: context',
   ]);
-  expect(trace2.events.some(e => e.type === 'frame-snapshot')).toBe(true);
-  expect(fs.existsSync(testInfo.outputPath('test-results', 'reuse-two', 'trace-1.zip'))).toBe(false);
+  expect(trace2.traceModel.storage().snapshotsForTest().length).toBeGreaterThan(0);
 });
 
 test('should work with manually closed pages', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'src/button.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
 
       test('closes page', async ({ page }) => {
         await page.close();
@@ -194,7 +208,7 @@ test('should work with manually closed pages', async ({ runInlineTest }) => {
 test('should clean storage', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'src/reuse.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       let lastContextGuid;
 
       test.beforeEach(async ({ page }) => {
@@ -237,7 +251,7 @@ test('should clean storage', async ({ runInlineTest }) => {
 test('should restore localStorage', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'src/reuse.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       let lastContextGuid;
 
       test.use({
@@ -312,7 +326,7 @@ test('should clean db', async ({ runInlineTest }) => {
   test.slow();
   const result = await runInlineTest({
     'src/reuse.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       let lastContextGuid;
 
       test.beforeEach(async ({ page }) => {
@@ -351,7 +365,7 @@ test('should clean db', async ({ runInlineTest }) => {
 test('should restore cookies', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'src/reuse.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       let lastContextGuid;
 
       test.use({
@@ -409,7 +423,7 @@ test('should restore cookies', async ({ runInlineTest }) => {
 test('should reuse context with beforeunload', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'src/reuse.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       let lastContextGuid;
       test('one', async ({ page, context }) => {
         lastContextGuid = context._guid;
@@ -434,7 +448,7 @@ test('should reuse context with beforeunload', async ({ runInlineTest }) => {
 test('should cancel pending operations upon reuse', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'src/reuse.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('one', async ({ page }) => {
         await Promise.race([
           page.getByText('click me').click().catch(e => {}),
@@ -460,7 +474,7 @@ test('should reset tracing', async ({ runInlineTest }, testInfo) => {
   const traceFile2 = testInfo.outputPath('trace2.zip');
   const result = await runInlineTest({
     'reuse.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('one', async ({ page }) => {
         await page.context().tracing.start({ snapshots: true });
         await page.setContent('<button>Click</button>');
@@ -481,17 +495,73 @@ test('should reset tracing', async ({ runInlineTest }, testInfo) => {
   expect(result.passed).toBe(2);
 
   const trace1 = await parseTrace(traceFile1);
-  expect(trace1.actions).toEqual([
+  expect(trace1.apiNames).toEqual([
     'page.setContent',
     'page.click',
   ]);
-  expect(trace1.events.some(e => e.type === 'frame-snapshot')).toBe(true);
+  expect(trace1.traceModel.storage().snapshotsForTest().length).toBeGreaterThan(0);
 
   const trace2 = await parseTrace(traceFile2);
-  expect(trace2.actions).toEqual([
+  expect(trace2.apiNames).toEqual([
     'page.setContent',
     'page.fill',
     'locator.click',
   ]);
-  expect(trace2.events.some(e => e.type === 'frame-snapshot')).toBe(true);
+  expect(trace1.traceModel.storage().snapshotsForTest().length).toBeGreaterThan(0);
+});
+
+test('should not delete others contexts', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'src/reuse.test.ts': `
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend<{ loggedInPage: Page }>({
+        loggedInPage: async ({ browser }, use) => {
+          const page = await browser.newPage();
+          await use(page);
+          await page.close();
+        },
+      });
+      test("passes", async ({ loggedInPage, page }) => {
+        await loggedInPage.goto('data:text/plain,Hello world');
+      });
+    `,
+  }, { workers: 1 }, { PW_TEST_REUSE_CONTEXT: '1' });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should survive serial mode with tracing and reuse', async ({ runInlineTest }, testInfo) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      import { defineConfig } from '@playwright/test';
+      export default defineConfig({ use: { trace: 'on' } });
+    `,
+    'reuse.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      let page;
+
+      test.describe.configure({ mode: 'serial' });
+
+      test.beforeAll(async ({ browser }) => {
+        page = await browser.newPage();
+      });
+
+      test('one', async ({}) => {
+        await page.setContent('<button>Click</button>');
+        await page.click('button');
+      });
+
+      test('two', async ({}) => {
+        await page.setContent('<input>');
+        await page.fill('input', 'value');
+      });
+    `,
+  }, { workers: 1 }, { PW_TEST_REUSE_CONTEXT: '1' });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(2);
+
+  expect(fs.existsSync(testInfo.outputPath('test-results', 'reuse-one', 'trace.zip'))).toBe(true);
+  expect(fs.existsSync(testInfo.outputPath('test-results', 'reuse-two', 'trace.zip'))).toBe(true);
 });

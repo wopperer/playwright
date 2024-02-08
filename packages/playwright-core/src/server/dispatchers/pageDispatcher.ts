@@ -19,9 +19,7 @@ import type { Frame } from '../frames';
 import { Page, Worker } from '../page';
 import type * as channels from '@protocol/channels';
 import { Dispatcher, existingDispatcher } from './dispatcher';
-import { parseError, serializeError } from '../../protocol/serializers';
-import { ConsoleMessageDispatcher } from './consoleMessageDispatcher';
-import { DialogDispatcher } from './dialogDispatcher';
+import { parseError } from '../errors';
 import { FrameDispatcher } from './frameDispatcher';
 import { RequestDispatcher } from './networkDispatchers';
 import { ResponseDispatcher } from './networkDispatchers';
@@ -60,7 +58,7 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
     // If we split pageCreated and pageReady, there should be no main frame during pageCreated.
 
     // We will reparent it to the page below using adopt.
-    const mainFrame = FrameDispatcher.from(parentScope as any as PageDispatcher, page.mainFrame());
+    const mainFrame = FrameDispatcher.from(parentScope, page.mainFrame());
 
     super(parentScope, page, 'Page', {
       mainFrame,
@@ -76,20 +74,18 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
       this._dispatchEvent('close');
       this._dispose();
     });
-    this.addObjectListener(Page.Events.Console, message => this._dispatchEvent('console', { message: new ConsoleMessageDispatcher(this, message) }));
     this.addObjectListener(Page.Events.Crash, () => this._dispatchEvent('crash'));
-    this.addObjectListener(Page.Events.Dialog, dialog => this._dispatchEvent('dialog', { dialog: new DialogDispatcher(this, dialog) }));
     this.addObjectListener(Page.Events.Download, (download: Download) => {
       // Artifact can outlive the page, so bind to the context scope.
       this._dispatchEvent('download', { url: download.url, suggestedFilename: download.suggestedFilename(), artifact: ArtifactDispatcher.from(parentScope, download.artifact) });
     });
     this.addObjectListener(Page.Events.FileChooser, (fileChooser: FileChooser) => this._dispatchEvent('fileChooser', {
-      element: ElementHandleDispatcher.from(this, fileChooser.element()),
+      element: ElementHandleDispatcher.from(mainFrame, fileChooser.element()),
       isMultiple: fileChooser.isMultiple()
     }));
     this.addObjectListener(Page.Events.FrameAttached, frame => this._onFrameAttached(frame));
     this.addObjectListener(Page.Events.FrameDetached, frame => this._onFrameDetached(frame));
-    this.addObjectListener(Page.Events.PageError, error => this._dispatchEvent('pageError', { error: serializeError(error) }));
+    this.addObjectListener(Page.Events.LocatorHandlerTriggered, (uid: number) => this._dispatchEvent('locatorHandlerTriggered', { uid }));
     this.addObjectListener(Page.Events.WebSocket, webSocket => this._dispatchEvent('webSocket', { webSocket: new WebSocketDispatcher(this, webSocket) }));
     this.addObjectListener(Page.Events.Worker, worker => this._dispatchEvent('worker', { worker: new WorkerDispatcher(this, worker) }));
     this.addObjectListener(Page.Events.Video, (artifact: Artifact) => this._dispatchEvent('video', { artifact: ArtifactDispatcher.from(parentScope, artifact) }));
@@ -115,6 +111,10 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
 
   async exposeBinding(params: channels.PageExposeBindingParams, metadata: CallMetadata): Promise<void> {
     await this._page.exposeBinding(params.name, !!params.needsHandle, (source, ...args) => {
+      // When reusing the context, we might have some bindings called late enough,
+      // after context and page dispatchers have been disposed.
+      if (this._disposed)
+        return;
       const binding = new BindingCallDispatcher(this, params.name, !!params.needsHandle, source, args);
       this._dispatchEvent('bindingCall', { binding });
       return binding.promise();
@@ -135,6 +135,15 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
 
   async goForward(params: channels.PageGoForwardParams, metadata: CallMetadata): Promise<channels.PageGoForwardResult> {
     return { response: ResponseDispatcher.fromNullable(this.parentScope(), await this._page.goForward(metadata, params)) };
+  }
+
+  async registerLocatorHandler(params: channels.PageRegisterLocatorHandlerParams, metadata: CallMetadata): Promise<channels.PageRegisterLocatorHandlerResult> {
+    const uid = this._page.registerLocatorHandler(params.selector);
+    return { uid };
+  }
+
+  async resolveLocatorHandlerNoReply(params: channels.PageResolveLocatorHandlerNoReplyParams, metadata: CallMetadata): Promise<void> {
+    this._page.resolveLocatorHandler(params.uid);
   }
 
   async emulateMedia(params: channels.PageEmulateMediaParams, metadata: CallMetadata): Promise<void> {
@@ -170,7 +179,7 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
   }
 
   async expectScreenshot(params: channels.PageExpectScreenshotParams, metadata: CallMetadata): Promise<channels.PageExpectScreenshotResult> {
-    const mask: { frame: Frame, selector: string }[] = (params.screenshotOptions?.mask || []).map(({ frame, selector }) => ({
+    const mask: { frame: Frame, selector: string }[] = (params.mask || []).map(({ frame, selector }) => ({
       frame: (frame as FrameDispatcher)._object,
       selector,
     }));
@@ -181,14 +190,7 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
     return await this._page.expectScreenshot(metadata, {
       ...params,
       locator,
-      comparatorOptions: {
-        ...params.comparatorOptions,
-        _comparator: params.comparatorOptions?.comparator,
-      },
-      screenshotOptions: {
-        ...params.screenshotOptions,
-        mask,
-      },
+      mask,
     });
   }
 
@@ -201,10 +203,12 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
   }
 
   async close(params: channels.PageCloseParams, metadata: CallMetadata): Promise<void> {
+    if (!params.runBeforeUnload)
+      metadata.potentiallyClosesScope = true;
     await this._page.close(metadata, params);
   }
 
-  async updateSubscription(params: channels.PageUpdateSubscriptionParams, metadata?: channels.Metadata | undefined): Promise<void> {
+  async updateSubscription(params: channels.PageUpdateSubscriptionParams): Promise<void> {
     if (params.event === 'fileChooser')
       await this._page.setFileChooserIntercepted(params.enabled);
     if (params.enabled)
@@ -234,19 +238,19 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
   }
 
   async mouseMove(params: channels.PageMouseMoveParams, metadata: CallMetadata): Promise<void> {
-    await this._page.mouse.move(params.x, params.y, params);
+    await this._page.mouse.move(params.x, params.y, params, metadata);
   }
 
   async mouseDown(params: channels.PageMouseDownParams, metadata: CallMetadata): Promise<void> {
-    await this._page.mouse.down(params);
+    await this._page.mouse.down(params, metadata);
   }
 
   async mouseUp(params: channels.PageMouseUpParams, metadata: CallMetadata): Promise<void> {
-    await this._page.mouse.up(params);
+    await this._page.mouse.up(params, metadata);
   }
 
   async mouseClick(params: channels.PageMouseClickParams, metadata: CallMetadata): Promise<void> {
-    await this._page.mouse.click(params.x, params.y, params);
+    await this._page.mouse.click(params.x, params.y, params, metadata);
   }
 
   async mouseWheel(params: channels.PageMouseWheelParams, metadata: CallMetadata): Promise<void> {
@@ -254,7 +258,7 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
   }
 
   async touchscreenTap(params: channels.PageTouchscreenTapParams, metadata: CallMetadata): Promise<void> {
-    await this._page.touchscreen.tap(params.x, params.y);
+    await this._page.touchscreen.tap(params.x, params.y, metadata);
   }
 
   async accessibilitySnapshot(params: channels.PageAccessibilitySnapshotParams, metadata: CallMetadata): Promise<channels.PageAccessibilitySnapshotResult> {
@@ -297,11 +301,11 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageChannel, Brows
   }
 
   _onFrameAttached(frame: Frame) {
-    this._dispatchEvent('frameAttached', { frame: FrameDispatcher.from(this, frame) });
+    this._dispatchEvent('frameAttached', { frame: FrameDispatcher.from(this.parentScope(), frame) });
   }
 
   _onFrameDetached(frame: Frame) {
-    this._dispatchEvent('frameDetached', { frame: FrameDispatcher.from(this, frame) });
+    this._dispatchEvent('frameDetached', { frame: FrameDispatcher.from(this.parentScope(), frame) });
   }
 
   override _onDispose() {
@@ -346,7 +350,7 @@ export class BindingCallDispatcher extends Dispatcher<{ guid: string }, channels
 
   constructor(scope: PageDispatcher, name: string, needsHandle: boolean, source: { context: BrowserContext, page: Page, frame: Frame }, args: any[]) {
     super(scope, { guid: 'bindingCall@' + createGuid() }, 'BindingCall', {
-      frame: FrameDispatcher.from(scope, source.frame),
+      frame: FrameDispatcher.from(scope.parentScope(), source.frame),
       name,
       args: needsHandle ? undefined : args.map(serializeResult),
       handle: needsHandle ? ElementHandleDispatcher.fromJSHandle(scope, args[0] as JSHandle) : undefined,
@@ -363,9 +367,11 @@ export class BindingCallDispatcher extends Dispatcher<{ guid: string }, channels
 
   async resolve(params: channels.BindingCallResolveParams, metadata: CallMetadata): Promise<void> {
     this._resolve!(parseArgument(params.result));
+    this._dispose();
   }
 
   async reject(params: channels.BindingCallRejectParams, metadata: CallMetadata): Promise<void> {
     this._reject!(parseError(params.error));
+    this._dispose();
   }
 }

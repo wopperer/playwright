@@ -17,77 +17,81 @@
 // @ts-check
 // This file is injected into the registry as text, no dependencies are allowed.
 
-import React from 'react';
-import ReactDOM from 'react-dom';
+import __pwReact from 'react';
+import { createRoot as __pwCreateRoot } from 'react-dom/client';
+/** @typedef {import('../playwright-ct-core/types/component').JsxComponent} JsxComponent */
 
-/** @typedef {import('../playwright-test/types/component').Component} Component */
-/** @typedef {import('react').FunctionComponent} FrameworkComponent */
-
-/** @type {Map<string, FrameworkComponent>} */
-const registry = new Map();
+/** @type {Map<Element, { root: import('react-dom/client').Root, setRenderer: (renderer: any) => void }>} */
+const __pwRootRegistry = new Map();
 
 /**
- * @param {{[key: string]: FrameworkComponent}} components
+ * @param {any} component
+ * @returns {component is JsxComponent}
  */
-export function register(components) {
-  for (const [name, value] of Object.entries(components))
-    registry.set(name, value);
+function isJsxComponent(component) {
+  return typeof component === 'object' && component && component.__pw_type === 'jsx';
 }
 
 /**
- * @param {Component} component
- * @returns {JSX.Element}
+ * @param {any} value
  */
-function render(component) {
-  let componentFunc = registry.get(component.type);
-  if (!componentFunc) {
-    // Lookup by shorthand.
-    for (const [name, value] of registry) {
-      if (component.type.endsWith(`_${name}`)) {
-        componentFunc = value;
-        break;
-      }
+function __pwRender(value) {
+  return window.__pwTransformObject(value, v => {
+    if (isJsxComponent(v)) {
+      const component = v;
+      const props = component.props ? __pwRender(component.props) : {};
+      return { result: __pwReact.createElement(/** @type { any } */ (component.type), { ...props, children: undefined }, props.children) };
     }
-  }
-
-  if (!componentFunc && component.type[0].toUpperCase() === component.type[0])
-    throw new Error(`Unregistered component: ${component.type}. Following components are registered: ${[...registry.keys()]}`);
-
-  const componentFuncOrString = componentFunc || component.type;
-
-  if (component.kind !== 'jsx')
-    throw new Error('Object mount notation is not supported');
-
-  return React.createElement(componentFuncOrString, component.props, ...component.children.map(child => {
-    if (typeof child === 'string')
-      return child;
-    return render(child);
-  }).filter(child => {
-    if (typeof child === 'string')
-      return !!child.trim();
-    return true;
-  }));
+  });
 }
 
 window.playwrightMount = async (component, rootElement, hooksConfig) => {
-  let App = () => render(component);
-  for (const hook of /** @type {any} */(window).__pw_hooks_before_mount || []) {
-    const wrapper = await hook({ App, hooksConfig });
-    if (wrapper)
-      App = () => wrapper;
+  if (!isJsxComponent(component))
+    throw new Error('Object mount notation is not supported');
+  if (__pwRootRegistry.has(rootElement)) {
+    throw new Error(
+        'Attempting to mount a component into an container that already has a React root'
+    );
   }
 
-  ReactDOM.render(App(), rootElement);
+  const root = __pwCreateRoot(rootElement);
+  const entry = { root, setRenderer: () => undefined };
+  __pwRootRegistry.set(rootElement, entry);
 
-  for (const hook of /** @type {any} */(window).__pw_hooks_after_mount || [])
+  const App = () => {
+    /** @type {any} */
+    const [renderer, setRenderer] = __pwReact.useState(() => __pwRender(component));
+    entry.setRenderer = setRenderer;
+    return renderer;
+  };
+  let AppWrapper = App;
+  for (const hook of window.__pw_hooks_before_mount || []) {
+    const wrapper = await hook({ App: AppWrapper, hooksConfig });
+    if (wrapper)
+      AppWrapper = () => wrapper;
+  }
+
+  root.render(__pwReact.createElement(AppWrapper));
+
+  for (const hook of window.__pw_hooks_after_mount || [])
     await hook({ hooksConfig });
 };
 
 window.playwrightUnmount = async rootElement => {
-  if (!ReactDOM.unmountComponentAtNode(rootElement))
+  const entry = __pwRootRegistry.get(rootElement);
+  if (!entry)
     throw new Error('Component was not mounted');
+
+  entry.root.unmount();
+  __pwRootRegistry.delete(rootElement);
 };
 
 window.playwrightUpdate = async (rootElement, component) => {
-  ReactDOM.render(render(/** @type {Component} */(component)), rootElement);
+  if (!isJsxComponent(component))
+    throw new Error('Object mount notation is not supported');
+
+  const entry = __pwRootRegistry.get(rootElement);
+  if (!entry)
+    throw new Error('Component was not mounted');
+  entry.setRenderer(() => __pwRender(component));
 };

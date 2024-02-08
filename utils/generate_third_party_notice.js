@@ -37,7 +37,7 @@ async function checkDir(dir) {
 }
 
 (async () => {
-  for (const project of ['playwright-core', 'playwright-test']) {
+  for (const project of ['playwright-core', 'playwright']) {
     const lines = [];
     lines.push(`microsoft/${project}
 
@@ -59,13 +59,14 @@ This project incorporates components from the projects listed below. The origina
       }
     }
 
-    const packages = await checkDir('node_modules/codemirror');
+    const packages = await checkDir('node_modules/codemirror-shadow-1');
     for (const [key, value] of Object.entries(packages)) {
       if (value.licenseText)
         allPackages[key] = value;
     }
 
-    const keys = Object.keys(allPackages).sort();
+    // fsevents is a darwin-only dependency that we do not bundle.
+    const keys = Object.keys(allPackages).sort().filter(key => !key.startsWith('fsevents@'));
     for (const key of keys)
       lines.push(`-\t${key} (${allPackages[key].repository})`);
 

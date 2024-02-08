@@ -45,18 +45,19 @@ context.tracing.stop(path = "trace.zip")
 ```
 
 ```csharp
-await using var browser = playwright.Chromium.LaunchAsync();
+using var playwright = await Playwright.CreateAsync();
+var browser = await playwright.Chromium.LaunchAsync();
 await using var context = await browser.NewContextAsync();
 await context.Tracing.StartAsync(new()
 {
-  Screenshots: true,
-  Snapshots: true
+  Screenshots = true,
+  Snapshots = true
 });
-var page = context.NewPageAsync();
+var page = await context.NewPageAsync();
 await page.GotoAsync("https://playwright.dev");
 await context.Tracing.StopAsync(new()
 {
-  Path: "trace.zip"
+  Path = "trace.zip"
 });
 ```
 
@@ -85,32 +86,33 @@ context.tracing().stop(new Tracing.StopOptions()
 ```
 
 ```python async
-await context.tracing.start(name="trace", screenshots=True, snapshots=True)
+await context.tracing.start(screenshots=True, snapshots=True)
 page = await context.new_page()
 await page.goto("https://playwright.dev")
 await context.tracing.stop(path = "trace.zip")
 ```
 
 ```python sync
-context.tracing.start(name="trace", screenshots=True, snapshots=True)
+context.tracing.start(screenshots=True, snapshots=True)
 page = context.new_page()
 page.goto("https://playwright.dev")
 context.tracing.stop(path = "trace.zip")
 ```
 
 ```csharp
-await using var browser = playwright.Chromium.LaunchAsync();
+using var playwright = await Playwright.CreateAsync();
+var browser = await playwright.Chromium.LaunchAsync();
 await using var context = await browser.NewContextAsync();
 await context.Tracing.StartAsync(new()
 {
-  Screenshots: true,
-  Snapshots: true
+  Screenshots = true,
+  Snapshots = true
 });
-var page = context.NewPageAsync();
+var page = await context.NewPageAsync();
 await page.GotoAsync("https://playwright.dev");
 await context.Tracing.StopAsync(new()
 {
-  Path: "trace.zip"
+  Path = "trace.zip"
 });
 ```
 
@@ -118,8 +120,10 @@ await context.Tracing.StopAsync(new()
 * since: v1.12
 - `name` <[string]>
 
-If specified, the trace is going to be saved into the file with the
-given name inside the [`option: tracesDir`] folder specified in [`method: BrowserType.launch`].
+If specified, intermediate trace files are going to be saved into the files with the
+given name prefix inside the [`option: tracesDir`] folder specified in [`method: BrowserType.launch`].
+To specify the final trace zip file name, you need to pass `path` option to
+[`method: Tracing.stop`] instead.
 
 ### option: Tracing.start.screenshots
 * since: v1.12
@@ -202,7 +206,7 @@ context.tracing().stopChunk(new Tracing.StopChunkOptions()
 ```
 
 ```python async
-await context.tracing.start(name="trace", screenshots=True, snapshots=True)
+await context.tracing.start(screenshots=True, snapshots=True)
 page = await context.new_page()
 await page.goto("https://playwright.dev")
 
@@ -218,7 +222,7 @@ await context.tracing.stop_chunk(path = "trace2.zip")
 ```
 
 ```python sync
-context.tracing.start(name="trace", screenshots=True, snapshots=True)
+context.tracing.start(screenshots=True, snapshots=True)
 page = context.new_page()
 page.goto("https://playwright.dev")
 
@@ -234,14 +238,15 @@ context.tracing.stop_chunk(path = "trace2.zip")
 ```
 
 ```csharp
-await using var browser = playwright.Chromium.LaunchAsync();
+using var playwright = await Playwright.CreateAsync();
+var browser = await playwright.Chromium.LaunchAsync();
 await using var context = await browser.NewContextAsync();
 await context.Tracing.StartAsync(new()
 {
-  Screenshots: true,
-  Snapshots: true
+  Screenshots = true,
+  Snapshots = true
 });
-var page = context.NewPageAsync();
+var page = await context.NewPageAsync();
 await page.GotoAsync("https://playwright.dev");
 
 await context.Tracing.StartChunkAsync();
@@ -249,7 +254,7 @@ await page.GetByText("Get Started").ClickAsync();
 // Everything between StartChunkAsync and StopChunkAsync will be recorded in the trace.
 await context.Tracing.StopChunkAsync(new()
 {
-  Path: "trace1.zip"
+  Path = "trace1.zip"
 });
 
 await context.Tracing.StartChunkAsync();
@@ -257,7 +262,7 @@ await page.GotoAsync("http://example.com");
 // Save a second trace file with different actions.
 await context.Tracing.StopChunkAsync(new()
 {
-  Path: "trace2.zip"
+  Path = "trace2.zip"
 });
 ```
 
@@ -266,6 +271,15 @@ await context.Tracing.StopChunkAsync(new()
 - `title` <[string]>
 
 Trace name to be shown in the Trace Viewer.
+
+### option: Tracing.startChunk.name
+* since: v1.32
+- `name` <[string]>
+
+If specified, intermediate trace files are going to be saved into the files with the
+given name prefix inside the [`option: tracesDir`] folder specified in [`method: BrowserType.launch`].
+To specify the final trace zip file name, you need to pass `path` option to
+[`method: Tracing.stopChunk`] instead.
 
 ## async method: Tracing.stop
 * since: v1.12

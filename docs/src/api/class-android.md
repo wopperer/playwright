@@ -40,8 +40,12 @@ const { _android: android } = require('playwright');
     const webview = await device.webView({ pkg: 'org.chromium.webview_shell' });
 
     // Fill the input box.
-    await device.fill({ res: 'org.chromium.webview_shell:id/url_field' }, 'github.com/microsoft/playwright');
-    await device.press({ res: 'org.chromium.webview_shell:id/url_field' }, 'Enter');
+    await device.fill({
+      res: 'org.chromium.webview_shell:id/url_field',
+    }, 'github.com/microsoft/playwright');
+    await device.press({
+      res: 'org.chromium.webview_shell:id/url_field',
+    }, 'Enter');
 
     // Work with WebView's page as usual.
     const page = await webview.page();
@@ -68,12 +72,6 @@ const { _android: android } = require('playwright');
   // Close the device.
   await device.close();
 })();
-```
-
-Note that since you don't need Playwright to install web browsers when testing Android, you can omit browser download via setting the following environment variable when installing Playwright:
-
-```bash js
-PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm i -D playwright
 ```
 
 ## async method: Android.connect

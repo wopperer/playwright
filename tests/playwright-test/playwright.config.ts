@@ -17,15 +17,24 @@
 import { config as loadEnv } from 'dotenv';
 loadEnv({ path: path.join(__dirname, '..', '..', '.env') });
 
-import type { Config } from './stable-test-runner';
+import { defineConfig, type ReporterDescription } from './stable-test-runner';
 import * as path from 'path';
 
 const outputDir = path.join(__dirname, '..', '..', 'test-results');
-const config: Config = {
+const reporters = () => {
+  const result: ReporterDescription[] = process.env.CI ? [
+    ['dot'],
+    ['json', { outputFile: path.join(outputDir, 'report.json') }],
+    ['blob', { outputDir: path.join(__dirname, '..', '..', 'blob-report'), fileName: `${process.env.PWTEST_BOT_NAME}.zip` }],
+  ] : [
+    ['list']
+  ];
+  return result;
+};
+export default defineConfig({
   timeout: 30000,
   forbidOnly: !!process.env.CI,
   workers: process.env.CI ? 2 : undefined,
-  preserveOutput: process.env.CI ? 'failures-only' : 'always',
   snapshotPathTemplate: '__screenshots__/{testFilePath}/{arg}{ext}',
   projects: [
     {
@@ -39,12 +48,5 @@ const config: Config = {
       testIgnore: [path.join(__dirname, '../fixtures/**')],
     },
   ],
-  reporter: process.env.CI ? [
-    ['dot'],
-    ['json', { outputFile: path.join(outputDir, 'report.json') }],
-  ] : [
-    ['list']
-  ],
-};
-
-export default config;
+  reporter: reporters(),
+});

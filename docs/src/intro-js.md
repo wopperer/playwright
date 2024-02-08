@@ -3,6 +3,8 @@ id: intro
 title: "Installation"
 ---
 
+## Introduction
+
 Playwright Test was created specifically to accommodate the needs of end-to-end testing. Playwright supports all modern rendering engines including Chromium, WebKit, and Firefox. Test on Windows, Linux, and macOS, locally or on CI, headless or headed with native mobile emulation of Google Chrome for Android and Mobile Safari.
 
 **You will learn**
@@ -40,11 +42,11 @@ yarn create playwright
 ```
 
 </TabItem>
-  
+
 <TabItem value="pnpm">
 
 ```bash
-pnpm dlx create-playwright
+pnpm create playwright
 ```
 
 </TabItem>
@@ -56,7 +58,6 @@ Run the install command and select the following to get started:
  - Name of your Tests folder (default is tests or e2e if you already have a tests folder in your project)
  - Add a GitHub Actions workflow to easily run tests on CI
  - Install Playwright browsers (default is true)
-
 
 ## What's Installed
 
@@ -73,7 +74,7 @@ tests-examples/
 ```
 
 The [playwright.config](./test-configuration.md) is where you can add configuration for Playwright including modifying which browsers you would like to run Playwright on. If you are running tests inside an already existing project then dependencies will be added directly to your `package.json`.
- 
+
 The `tests` folder contains a basic example test to help you get started with testing. For a more detailed example check out the `tests-examples` folder which contains tests written to test a todo app.
 
 ## Running the Example Test
@@ -84,17 +85,51 @@ By default tests will be run on all 3 browsers, chromium, firefox and webkit usi
 npx playwright test
 ```
 
+![tests running in command line](https://github.com/microsoft/playwright/assets/13063165/981c1b2b-dc7e-4b85-b241-272b44da6628) 
 See our doc on [Running Tests](./running-tests.md) to learn more about running tests in headed mode, running multiple tests, running specific tests etc.
 
 ## HTML Test Reports
 
-Once your test has finished running a [HTML Reporter](./test-reporters.md#html-reporter) will have been created which shows you a full report of your tests allowing you to filter the report by browsers, passed tests, failed tests, skipped tests and flaky tests. You can click on each test and explore the test's errors as well as each step of the test. By default, the HTML report is opened automatically if some of the tests failed.
+After your test completes, an [HTML Reporter](./test-reporters.md#html-reporter) will be generated, which shows you a full report of your tests allowing you to filter the report by browsers, passed tests, failed tests, skipped tests and flaky tests. You can click on each test and explore the test's errors as well as each step of the test. By default, the HTML report is opened automatically if some of the tests failed.
 
 ```bash
 npx playwright show-report
 ```
 
-<img width="1392" alt="HTML Reporter" src="https://user-images.githubusercontent.com/13063165/212743312-edf1e8ed-3fc2-48aa-9c93-24ae3e36504d.png" />
+![HTML Report](https://github.com/microsoft/playwright/assets/13063165/38ec17a7-9e61-4002-b137-a93812765501)
+
+## Running the Example Test in UI Mode
+
+Run your tests with [UI Mode](./test-ui-mode.md) for a better developer experience with time travel debugging, watch mode and more.
+
+```bash
+npx playwright test --ui
+```
+![UI Mode](https://github.com/microsoft/playwright/assets/13063165/c5b501cc-4f5d-485a-87cc-66044c651786)
+
+Check out or [detailed guide on UI Mode](./test-ui-mode.md) to learn more about its features.
+
+## Updating Playwright
+
+To update Playwright to the latest version run the following command:
+
+```bash
+npm install -D @playwright/test@latest
+# Also download new browser binaries and their dependencies:
+npx playwright install --with-deps
+```
+You can always check which version of Playwright you have by running the following command:
+
+```bash
+npx playwright --version
+```
+
+## System requirements
+
+- Node.js 18+
+- Windows 10+, Windows Server 2016+ or Windows Subsystem for Linux (WSL).
+- MacOS 12 Monterey, MacOS 13 Ventura, or MacOS 14 Sonoma.
+- Debian 11, Debian 12, Ubuntu 20.04 or Ubuntu 22.04, with x86-64 or arm64 architecture.
 
 ## What's next
 

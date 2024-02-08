@@ -14,28 +14,45 @@
   limitations under the License.
 */
 
+import { useMeasure, useSetting } from '../uiUtils';
 import './splitView.css';
 import * as React from 'react';
 
-export interface SplitViewProps {
-  sidebarSize: number,
-  sidebarHidden?: boolean,
-  sidebarIsFirst?: boolean,
-  orientation?: 'vertical' | 'horizontal',
-  children: JSX.Element | JSX.Element[] | string,
-}
+export type SplitViewProps = {
+  sidebarSize: number;
+  sidebarHidden?: boolean;
+  sidebarIsFirst?: boolean;
+  orientation?: 'vertical' | 'horizontal';
+  minSidebarSize?: number;
+  settingName?: string;
+};
 
 const kMinSize = 50;
 
-export const SplitView: React.FC<SplitViewProps> = ({
+export const SplitView: React.FC<React.PropsWithChildren<SplitViewProps>> = ({
   sidebarSize,
   sidebarHidden = false,
   sidebarIsFirst = false,
   orientation = 'vertical',
+  minSidebarSize = kMinSize,
+  settingName,
   children
 }) => {
-  const [size, setSize] = React.useState<number>(Math.max(kMinSize, sidebarSize));
+  const [hSize, setHSize] = useSetting<number>(settingName ? settingName + '.' + orientation + ':size' : undefined, Math.max(minSidebarSize, sidebarSize) * window.devicePixelRatio);
+  const [vSize, setVSize] = useSetting<number>(settingName ? settingName + '.' + orientation + ':size' : undefined, Math.max(minSidebarSize, sidebarSize) * window.devicePixelRatio);
   const [resizing, setResizing] = React.useState<{ offset: number, size: number } | null>(null);
+  const [measure, ref] = useMeasure<HTMLDivElement>();
+
+  let size: number;
+  if (orientation === 'vertical') {
+    size = vSize / window.devicePixelRatio;
+    if (measure && measure.height < size)
+      size = measure.height - 10;
+  } else {
+    size = hSize / window.devicePixelRatio;
+    if (measure && measure.width < size)
+      size = measure.width - 10;
+  }
 
   const childrenArray = React.Children.toArray(children);
   document.body.style.userSelect = resizing ? 'none' : 'inherit';
@@ -52,7 +69,7 @@ export const SplitView: React.FC<SplitViewProps> = ({
       resizerStyle = { right: resizing ? 0 : size - 4, left: resizing ? 0 : undefined, width: resizing ? 'initial' : 8 };
   }
 
-  return <div className={'split-view ' + orientation + (sidebarIsFirst ? ' sidebar-first' : '') }>
+  return <div className={'split-view ' + orientation + (sidebarIsFirst ? ' sidebar-first' : '') } ref={ref}>
     <div className='split-view-main'>{childrenArray[0]}</div>
     { !sidebarHidden && <div style={{ flexBasis: size }} className='split-view-sidebar'>{childrenArray[1]}</div> }
     { !sidebarHidden && <div
@@ -70,8 +87,11 @@ export const SplitView: React.FC<SplitViewProps> = ({
 
           const splitView = (event.target as HTMLElement).parentElement!;
           const rect = splitView.getBoundingClientRect();
-          const size = Math.min(Math.max(kMinSize, newSize), (orientation === 'vertical' ? rect.height : rect.width) - kMinSize);
-          setSize(size);
+          const size = Math.min(Math.max(minSidebarSize, newSize), (orientation === 'vertical' ? rect.height : rect.width) - minSidebarSize);
+          if (orientation === 'vertical')
+            setVSize(size * window.devicePixelRatio);
+          else
+            setHSize(size * window.devicePixelRatio);
         }
       }}
     ></div> }

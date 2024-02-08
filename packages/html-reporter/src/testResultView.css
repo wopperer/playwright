@@ -26,7 +26,7 @@
 }
 
 .test-result video,
-.test-result img {
+.test-result img.screenshot {
   flex: none;
   box-shadow: var(--box-shadow-thick);
   margin: 24px auto;
@@ -37,19 +37,6 @@
 .test-result-path {
   padding: 0 0 0 5px;
   color: var(--color-fg-muted);
-}
-
-.test-result-error-message {
-  white-space: pre;
-  font-family: monospace;
-  overflow: auto;
-  flex: none;
-  padding: 0;
-  background-color: var(--color-canvas-subtle);
-  border-radius: 6px;
-  padding: 16px;
-  line-height: initial;
-  margin-bottom: 6px;
 }
 
 .test-result-counter {

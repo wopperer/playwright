@@ -1,8 +1,0 @@
-[*]
-../../types.ts
-../common/
-../matchers/
-../reporters/
-../third_party/
-../plugins/
-../util.ts

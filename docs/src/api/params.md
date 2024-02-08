@@ -4,10 +4,11 @@
 When to consider operation succeeded, defaults to `load`. Events can be either:
 * `'domcontentloaded'` - consider operation to be finished when the `DOMContentLoaded` event is fired.
 * `'load'` - consider operation to be finished when the `load` event is fired.
-* `'networkidle'` - consider operation to be finished when there are no network connections for at least `500` ms.
+* `'networkidle'` - **DISCOURAGED** consider operation to be finished when there are no network connections for at least `500` ms. Don't use this method for testing, rely on web assertions to assess readiness instead.
 * `'commit'` - consider operation to be finished when network response is received and the document started loading.
 
 ## navigation-timeout
+* langs: python, java, csharp
 - `timeout` <[float]>
 
 Maximum operation time in milliseconds, defaults to 30 seconds, pass `0` to disable timeout.
@@ -17,11 +18,27 @@ The default value can be changed by using the
 [`method: Page.setDefaultNavigationTimeout`] or
 [`method: Page.setDefaultTimeout`] methods.
 
-## wait-for-timeout
+## navigation-timeout-js
+* langs: js
 - `timeout` <[float]>
 
-maximum time to wait for in milliseconds. Defaults to `30000` (30 seconds). Pass `0` to disable timeout. The default
-value can be changed by using the [`method: BrowserContext.setDefaultTimeout`].
+Maximum operation time in milliseconds. Defaults to `0` - no timeout. The default value can be changed via `navigationTimeout` option in the config, or by using the [`method: BrowserContext.setDefaultNavigationTimeout`],
+[`method: BrowserContext.setDefaultTimeout`],
+[`method: Page.setDefaultNavigationTimeout`] or
+[`method: Page.setDefaultTimeout`] methods.
+
+## wait-for-function-timeout
+* langs: python, java, csharp
+- `timeout` <[float]>
+
+Maximum time to wait for in milliseconds. Defaults to `30000` (30 seconds). Pass `0` to disable timeout. The default
+value can be changed by using the [`method: BrowserContext.setDefaultTimeout`] or [`method: Page.setDefaultTimeout`] methods.
+
+## wait-for-function-timeout-js
+* langs: js
+- `timeout` <[float]>
+
+Maximum time to wait for in milliseconds. Defaults to `0` - no timeout. The default value can be changed via `actionTimeout` option in the config, or by using the [`method: BrowserContext.setDefaultTimeout`] or [`method: Page.setDefaultTimeout`] methods.
 
 ## input-strict
 - `strict` <[boolean]>
@@ -30,10 +47,18 @@ When true, the call requires selector to resolve to a single element. If given s
 than one element, the call throws an exception.
 
 ## input-timeout
+* langs: python, java, csharp
 - `timeout` <[float]>
 
-Maximum time in milliseconds, defaults to 30 seconds, pass `0` to disable timeout. The default value can be changed by
+Maximum time in milliseconds. Defaults to `30000` (30 seconds). Pass `0` to disable timeout. The default value can be changed by
 using the [`method: BrowserContext.setDefaultTimeout`] or
+[`method: Page.setDefaultTimeout`] methods.
+
+## input-timeout-js
+* langs: js
+- `timeout` <[float]>
+
+Maximum time in milliseconds. Defaults to `0` - no timeout. The default value can be changed via `actionTimeout` option in the config, or by using the [`method: BrowserContext.setDefaultTimeout`] or
 [`method: Page.setDefaultTimeout`] methods.
 
 ## input-no-wait-after
@@ -134,6 +159,11 @@ A selector to query for.
 
 A selector to use when resolving DOM element.
 
+## find-selector-or-locator
+- `selectorOrLocator` <[string]|[Locator]>
+
+A selector or locator to use when resolving DOM element.
+
 ## wait-for-selector-state
 - `state` <[WaitForSelectorState]<"attached"|"detached"|"visible"|"hidden">>
 
@@ -207,11 +237,11 @@ Specify environment variables that will be visible to the browser. Defaults to `
 ## js-python-context-option-storage-state
 * langs: js, python
 - `storageState` <[path]|[Object]>
-  - `cookies` <[Array]<[Object]>> cookies to set for context
+  - `cookies` <[Array]<[Object]>> Cookies to set for context
     - `name` <[string]>
     - `value` <[string]>
-    - `domain` <[string]> domain and path are required
-    - `path` <[string]> domain and path are required
+    - `domain` <[string]> Domain and path are required. For the cookie to apply to all subdomains as well, prefix domain with a dot, like this: ".example.com"
+    - `path` <[string]> Domain and path are required
     - `expires` <[float]> Unix time in seconds.
     - `httpOnly` <[boolean]>
     - `secure` <[boolean]>
@@ -222,8 +252,9 @@ Specify environment variables that will be visible to the browser. Defaults to `
       - `name` <[string]>
       - `value` <[string]>
 
-Populates context with given storage state. This option can be used to initialize context with logged-in information
-obtained via [`method: BrowserContext.storageState`]. Either a path to the file with saved storage, or an object with the following fields:
+Learn more about [storage state and auth](../auth.md).
+
+Populates context with given storage state. This option can be used to initialize context with logged-in information obtained via [`method: BrowserContext.storageState`].
 
 ## csharp-java-context-option-storage-state
 * langs: csharp, java
@@ -259,12 +290,12 @@ Whether to ignore HTTPS errors when sending network requests. Defaults to `false
 ## context-option-bypasscsp
 - `bypassCSP` <[boolean]>
 
-Toggles bypassing page's Content-Security-Policy.
+Toggles bypassing page's Content-Security-Policy. Defaults to `false`.
 
 ## context-option-baseURL
 - `baseURL` <[string]>
 
-When using [`method: Page.goto`], [`method: Page.route`], [`method: Page.waitForURL`], [`method: Page.waitForRequest`], or [`method: Page.waitForResponse`] it takes the base URL in consideration by using the [`URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor for building the corresponding URL. Examples:
+When using [`method: Page.goto`], [`method: Page.route`], [`method: Page.waitForURL`], [`method: Page.waitForRequest`], or [`method: Page.waitForResponse`] it takes the base URL in consideration by using the [`URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor for building the corresponding URL. Unset by default. Examples:
 * baseURL: `http://localhost:3000` and navigating to `/bar.html` results in `http://localhost:3000/bar.html`
 * baseURL: `http://localhost:3000/foo/` and navigating to `./bar.html` results in `http://localhost:3000/foo/bar.html`
 * baseURL: `http://localhost:3000/foo` (without trailing slash) and navigating to `./bar.html` results in `http://localhost:3000/bar.html`
@@ -277,7 +308,7 @@ When using [`method: Page.goto`], [`method: Page.route`], [`method: Page.waitFor
   - `height` <[int]> page height in pixels.
 
 Emulates consistent viewport for each page. Defaults to an 1280x720 viewport.
-Use `null` to disable the consistent viewport emulation.
+Use `null` to disable the consistent viewport emulation. Learn more about [viewport emulation](../emulation#viewport).
 
 :::note
 The `null` value opts out from the default presets, makes viewport depend on the
@@ -293,7 +324,7 @@ tests non-deterministic.
   - `height` <[int]> page height in pixels.
 
 Emulates consistent viewport for each page. Defaults to an 1280x720 viewport.
-Use `ViewportSize.NoViewport` to disable the consistent viewport emulation.
+Use `ViewportSize.NoViewport` to disable the consistent viewport emulation. Learn more about [viewport emulation](../emulation.md#viewport).
 
 :::note
 The `ViewportSize.NoViewport` value opts out from the default presets,
@@ -339,7 +370,7 @@ Optional request parameters.
 * langs: js, python, csharp
 - `headers` <[Object]<[string], [string]>>
 
-Allows to set HTTP headers.
+Allows to set HTTP headers. These headers will apply to the fetched request as well as any redirects initiated by it.
 
 ## js-python-csharp-fetch-option-timeout
 * langs: js, python, csharp
@@ -430,13 +461,13 @@ Function to be evaluated in the page context.
 
 ## js-evalonselector-pagefunction
 * langs: js
-- `pageFunction` <[function]\([Element]\)>
+- `pageFunction` <[function]\([Element]\)|[string]>
 
 Function to be evaluated in the page context.
 
 ## js-evalonselectorall-pagefunction
 * langs: js
-- `pageFunction` <[function]\([Array]<[Element]>\)>
+- `pageFunction` <[function]\([Array]<[Element]>\)|[string]>
 
 Function to be evaluated in the page context.
 
@@ -450,7 +481,7 @@ Function to be evaluated in the worker context.
 * langs: js
 - `pageFunction` <[function]|[Electron]>
 
-Function to be evaluated in the worker context.
+Function to be evaluated in the main Electron process.
 
 ## python-context-option-viewport
 * langs: python
@@ -458,7 +489,7 @@ Function to be evaluated in the worker context.
   - `width` <[int]> page width in pixels.
   - `height` <[int]> page height in pixels.
 
-Sets a consistent viewport for each page. Defaults to an 1280x720 viewport. `no_viewport` disables the fixed viewport.
+Sets a consistent viewport for each page. Defaults to an 1280x720 viewport. `no_viewport` disables the fixed viewport. Learn more about [viewport emulation](../emulation.md#viewport).
 
 ## python-context-option-no-viewport
 * langs: python
@@ -474,29 +505,28 @@ Specific user agent to use in this context.
 ## context-option-devicescalefactor
 - `deviceScaleFactor` <[float]>
 
-Specify device scale factor (can be thought of as dpr). Defaults to `1`.
+Specify device scale factor (can be thought of as dpr). Defaults to `1`. Learn more about [emulating devices with device scale factor](../emulation.md#devices).
 
 ## context-option-ismobile
 - `isMobile` <[boolean]>
 
-Whether the `meta viewport` tag is taken into account and touch events are enabled. Defaults to `false`. Not supported
-in Firefox.
+Whether the `meta viewport` tag is taken into account and touch events are enabled. isMobile is a part of device, so you don't actually need to set it manually. Defaults to `false` and is not supported in Firefox. Learn more about [mobile emulation](../emulation.md#ismobile).
 
 ## context-option-hastouch
 - `hasTouch` <[boolean]>
 
-Specifies if viewport supports touch events. Defaults to false.
+Specifies if viewport supports touch events. Defaults to false. Learn more about [mobile emulation](../emulation.md#devices).
 
 ## context-option-javascriptenabled
 - `javaScriptEnabled` <[boolean]>
 
-Whether or not to enable JavaScript in the context. Defaults to `true`.
+Whether or not to enable JavaScript in the context. Defaults to `true`. Learn more about [disabling JavaScript](../emulation.md#javascript-enabled).
 
 ## context-option-timezoneid
 - `timezoneId` <[string]>
 
 Changes the timezone of the context. See [ICU's metaZones.txt](https://cs.chromium.org/chromium/src/third_party/icu/source/data/misc/metaZones.txt?rcl=faee8bc70570192d82d2978a71e2a615788597d1)
-for a list of supported timezone IDs.
+for a list of supported timezone IDs. Defaults to the system timezone.
 
 ## context-option-geolocation
 - `geolocation` <[Object]>
@@ -507,31 +537,32 @@ for a list of supported timezone IDs.
 ## context-option-locale
 - `locale` <[string]>
 
-Specify user locale, for example `en-GB`, `de-DE`, etc. Locale will affect `navigator.language` value, `Accept-Language`
-request header value as well as number and date formatting rules.
+Specify user locale, for example `en-GB`, `de-DE`, etc. Locale will affect `navigator.language` value, `Accept-Language` request header value as well as number and date formatting rules. Defaults to the system default locale. Learn more about emulation in our [emulation guide](../emulation.md#locale--timezone).
 
 ## context-option-permissions
 - `permissions` <[Array]<[string]>>
 
 A list of permissions to grant to all pages in this context. See
-[`method: BrowserContext.grantPermissions`] for more details.
+[`method: BrowserContext.grantPermissions`] for more details. Defaults to none.
 
 ## context-option-extrahttpheaders
 - `extraHTTPHeaders` <[Object]<[string], [string]>>
 
-An object containing additional HTTP headers to be sent with every request.
+An object containing additional HTTP headers to be sent with every request. Defaults to none.
 
 ## context-option-offline
 - `offline` <[boolean]>
 
-Whether to emulate network being offline. Defaults to `false`.
+Whether to emulate network being offline. Defaults to `false`. Learn more about [network emulation](../emulation.md#offline).
 
 ## context-option-httpcredentials
 - `httpCredentials` <[Object]>
   - `username` <[string]>
   - `password` <[string]>
+  - `origin` ?<[string]> Restrain sending http credentials on specific origin (scheme://host:port).
 
 Credentials for [HTTP authentication](https://developer.mozilla.org/en-US/docs/Web/HTTP/Authentication).
+If no origin is specified, the username and password are sent to any servers upon unauthorized responses.
 
 ## context-option-colorscheme
 * langs: js, java
@@ -597,7 +628,7 @@ Logger sink for Playwright logging.
   - `content` ?<[HarContentPolicy]<"omit"|"embed"|"attach">> Optional setting to control resource content management. If `omit` is specified, content is not persisted. If `attach` is specified, resources are persisted as separate files or entries in the ZIP archive. If `embed` is specified, content is stored inline the HAR file as per HAR specification. Defaults to `attach` for `.zip` output files and to `embed` for all other file extensions.
   - `path` <[path]> Path on the filesystem to write the HAR file to. If the file name ends with `.zip`, `content: 'attach'` is used by default.
   - `mode` ?<[HarMode]<"full"|"minimal">> When set to `minimal`, only record information necessary for routing from HAR. This omits sizes, timing, page, cookies, security and other types of HAR information that are not used when replaying from HAR. Defaults to `full`.
-  - `urlFilter` ?<[string]|[RegExp]> A glob or regex pattern to filter requests that are stored in the HAR. When a [`option: baseURL`] via the context options was provided and the passed URL is a path, it gets merged via the [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor.
+  - `urlFilter` ?<[string]|[RegExp]> A glob or regex pattern to filter requests that are stored in the HAR. When a [`option: baseURL`] via the context options was provided and the passed URL is a path, it gets merged via the [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor. Defaults to none.
 
 Enables [HAR](http://www.softwareishard.com/blog/har-12-spec) recording for all pages into `recordHar.path` file. If not
 specified, the HAR is not recorded. Make sure to await [`method: BrowserContext.close`] for the HAR to be
@@ -680,7 +711,7 @@ Actual picture of each page will be scaled down if necessary to fit the specifie
   - `username` ?<[string]> Optional username to use if HTTP proxy requires authentication.
   - `password` ?<[string]> Optional password to use if HTTP proxy requires authentication.
 
-Network proxy settings to use with this context.
+Network proxy settings to use with this context. Defaults to none.
 
 :::note
 For Chromium on Windows the browser needs to be launched with the global proxy for this option to work. If all
@@ -693,7 +724,7 @@ contexts override the proxy, global proxy will be never used and can be any stri
 
 If set to true, enables strict selectors mode for this context. In the strict selectors mode all operations
 on selectors that imply single target DOM element will throw when more than one element matches the selector.
-This option does not affect any Locator APIs (Locators are always strict).
+This option does not affect any Locator APIs (Locators are always strict). Defaults to `false`.
 See [Locator] to learn more about the strict mode.
 
 ## context-option-service-worker-policy
@@ -703,6 +734,15 @@ Whether to allow sites to register Service workers. Defaults to `'allow'`.
 * `'allow'`: [Service Workers](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API) can be registered.
 * `'block'`: Playwright will block all registration of Service Workers.
 
+## unroute-all-options-behavior
+* langs: js, csharp, python
+* since: v1.41
+- `behavior` <[UnrouteBehavior]<"wait"|"ignoreErrors"|"default">>
+
+Specifies wether to wait for already running handlers and what to do if they throw errors:
+* `'default'` - do not wait for current handler calls (if any) to finish, if unrouted handler throws, it may result in unhandled error
+* `'wait'` - wait for current handler calls (if any) to finish
+* `'ignoreErrors'` - do not wait for current handler calls (if any) to finish, all errors thrown by the handlers after unrouting are silently caught
 
 ## select-options-values
 * langs: java, js, csharp
@@ -735,7 +775,7 @@ Optional load state to wait for, defaults to `load`. If the state has been alrea
 method resolves immediately. Can be one of:
   * `'load'` - wait for the `load` event to be fired.
   * `'domcontentloaded'` - wait for the `DOMContentLoaded` event to be fired.
-  * `'networkidle'` - wait until there are no network connections for at least `500` ms.
+  * `'networkidle'` - **DISCOURAGED** wait until there are no network connections for at least `500` ms. Don't use this method for testing, rely on web assertions to assess readiness instead.
 
 ## java-wait-for-event-callback
 * langs: java
@@ -798,13 +838,13 @@ using the [`method: AndroidDevice.setDefaultTimeout`] method.
 * langs: js
 - `timeout` <[float]>
 
-Time to retry the assertion for. Defaults to `timeout` in `TestConfig.expect`.
+Time to retry the assertion for in milliseconds. Defaults to `timeout` in `TestConfig.expect`.
 
 ## csharp-java-python-assertions-timeout
 * langs: java, python, csharp
 - `timeout` <[float]>
 
-Time to retry the assertion for.
+Time to retry the assertion for in milliseconds. Defaults to `5000`.
 
 ## assertions-max-diff-pixels
 * langs: js
@@ -872,8 +912,12 @@ between the same pixel in compared images, between zero (strict) and one (lax), 
 ## browser-option-args
 - `args` <[Array]<[string]>>
 
+:::warning
+Use custom browser args at your own risk, as some of them may break Playwright functionality.
+:::
+
 Additional arguments to pass to the browser instance. The list of Chromium flags can be found
-[here](http://peter.sh/experiments/chromium-command-line-switches/).
+[here](https://peter.sh/experiments/chromium-command-line-switches/).
 
 ## browser-option-channel
 - `channel` <[string]>
@@ -992,10 +1036,25 @@ For example, `"Playwright"` matches `<article><div>Playwright</div></article>`.
 ## locator-option-has
 - `has` <[Locator]>
 
-Matches elements containing an element that matches an inner locator. Inner locator is queried against the outer one.
+Narrows down the results of the method to those which contain elements matching this relative locator.
 For example, `article` that has `text=Playwright` matches `<article><div>Playwright</div></article>`.
 
+Inner locator **must be relative** to the outer locator and is queried starting with the outer locator match, not the document root. For example, you can find `content` that has `div` in `<article><content><div>Playwright</div></content></article>`. However, looking for `content` that has `article div` will fail, because the inner locator must be relative and should not use any elements outside the `content`.
+
 Note that outer and inner locators must belong to the same frame. Inner locator must not contain [FrameLocator]s.
+
+## locator-option-has-not
+- `hasNot` <[Locator]>
+
+Matches elements that do not contain an element that matches an inner locator. Inner locator is queried against the outer one.
+For example, `article` that does not have `div` matches `<article><span>Playwright</span></article>`.
+
+Note that outer and inner locators must belong to the same frame. Inner locator must not contain [FrameLocator]s.
+
+## locator-option-has-not-text
+- `hasNotText` <[string]|[RegExp]>
+
+Matches elements that do not contain specified text somewhere inside, possibly in a child or a descendant element. When passed a [string], matching is case-insensitive and searches for a substring.
 
 ## locator-options-list-v1.14
 - %%-locator-option-has-text-%%
@@ -1046,7 +1105,13 @@ Specify screenshot type, defaults to `png`.
 - `mask` <[Array]<[Locator]>>
 
 Specify locators that should be masked when the screenshot is taken. Masked elements will be overlaid with
-a pink box `#FF00FF` that completely covers its bounding box.
+a pink box `#FF00FF` (customized by [`option: maskColor`]) that completely covers its bounding box.
+
+## screenshot-option-mask-color
+* since: v1.35
+- `maskColor` <[string]>
+
+Specify the color of the overlay box for masked elements, in [CSS color format](https://developer.mozilla.org/en-US/docs/Web/CSS/color_value). Default color is pink `#FF00FF`.
 
 ## screenshot-option-full-page
 - `fullPage` <[boolean]>
@@ -1061,7 +1126,7 @@ When true, takes a screenshot of the full scrollable page, instead of the curren
   - `width` <[float]> width of clipping area
   - `height` <[float]> height of clipping area
 
-An object which specifies clipping of the resulting image. Should have the following fields:
+An object which specifies clipping of the resulting image.
 
 ## screenshot-option-scale
 - `scale` <[ScreenshotScale]<"css"|"device">>
@@ -1082,6 +1147,18 @@ Defaults to `"css"`.
 
 When set to `"hide"`, screenshot will hide text caret. When set to `"initial"`, text caret behavior will not be changed.  Defaults to `"hide"`.
 
+## screenshot-option-style
+- `style` <string>
+
+Text of the stylesheet to apply while making the screenshot. This is where you can hide dynamic elements, make elements invisible
+or change their properties to help you creating repeatable screenshots. This stylesheet pierces the Shadow DOM and applies
+to the inner frames.
+
+## screenshot-option-style-path
+- `stylePath` <[string]|[Array]<[string]>>
+
+File name containing the stylesheet to apply while making the screenshot. This is where you can hide dynamic elements, make elements invisible or change their properties to help you creating repeatable screenshots. This stylesheet pierces the Shadow DOM and applies to the inner frames.
+
 ## screenshot-options-common-list-v1.8
 - %%-screenshot-option-animations-%%
 - %%-screenshot-option-omit-background-%%
@@ -1091,7 +1168,6 @@ When set to `"hide"`, screenshot will hide text caret. When set to `"initial"`, 
 - %%-screenshot-option-caret-%%
 - %%-screenshot-option-type-%%
 - %%-screenshot-option-mask-%%
-- %%-input-timeout-%%
 
 ## locator-get-by-test-id-test-id
 * since: v1.27
@@ -1253,9 +1329,13 @@ By default, the `data-testid` attribute is used as a test id. Use [`method: Sele
 
 ```js
 // Set custom test id attribute from @playwright/test config:
-use: {
-  testIdAttribute: 'data-pw'
-}
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  use: {
+    testIdAttribute: 'data-pw'
+  },
+});
 ```
 
 ## template-locator-get-by-text
@@ -1278,19 +1358,19 @@ You can locate by text substring, exact string, or a regular expression:
 
 ```js
 // Matches <span>
-page.getByText('world')
+page.getByText('world');
 
 // Matches first <div>
-page.getByText('Hello world')
+page.getByText('Hello world');
 
 // Matches second <div>
-page.getByText('Hello', { exact: true })
+page.getByText('Hello', { exact: true });
 
 // Matches both <div>s
-page.getByText(/Hello/)
+page.getByText(/Hello/);
 
 // Matches second <div>
-page.getByText(/^hello$/i)
+page.getByText(/^hello$/i);
 ```
 
 ```python async
@@ -1346,19 +1426,19 @@ page.getByText(Pattern.compile("^hello$", Pattern.CASE_INSENSITIVE))
 
 ```csharp
 // Matches <span>
-page.GetByText("world")
+page.GetByText("world");
 
 // Matches first <div>
-page.GetByText("Hello world")
+page.GetByText("Hello world");
 
 // Matches second <div>
-page.GetByText("Hello", new() { Exact: true })
+page.GetByText("Hello", new() { Exact = true });
 
 // Matches both <div>s
-page.GetByText(new Regex("Hello"))
+page.GetByText(new Regex("Hello"));
 
 // Matches second <div>
-page.GetByText(new Regex("^hello$", RegexOptions.IgnoreCase))
+page.GetByText(new Regex("^hello$", RegexOptions.IgnoreCase));
 ```
 
 **Details**
@@ -1401,34 +1481,40 @@ await page.GetByAltText("Playwright logo").ClickAsync();
 
 ## template-locator-get-by-label-text
 
-Allows locating input elements by the text of the associated label.
+Allows locating input elements by the text of the associated `<label>` or `aria-labelledby` element, or by the `aria-label` attribute.
 
 **Usage**
 
-For example, this method will find the input by label text "Password" in the following DOM:
+For example, this method will find inputs by label "Username" and "Password" in the following DOM:
 
 ```html
+<input aria-label="Username">
 <label for="password-input">Password:</label>
 <input id="password-input">
 ```
 
 ```js
+await page.getByLabel('Username').fill('john');
 await page.getByLabel('Password').fill('secret');
 ```
 
 ```java
+page.getByLabel("Username").fill("john");
 page.getByLabel("Password").fill("secret");
 ```
 
 ```python async
+await page.get_by_label("Username").fill("john")
 await page.get_by_label("Password").fill("secret")
 ```
 
 ```python sync
+page.get_by_label("Username").fill("john")
 page.get_by_label("Password").fill("secret")
 ```
 
 ```csharp
+await page.GetByLabel("Username").FillAsync("john");
 await page.GetByLabel("Password").FillAsync("secret");
 ```
 
@@ -1448,8 +1534,8 @@ You can fill the input after locating it by the placeholder text:
 
 ```js
 await page
-    .getByPlaceholder("name@example.com")
-    .fill("playwright@microsoft.com");
+    .getByPlaceholder('name@example.com')
+    .fill('playwright@microsoft.com');
 ```
 
 ```java
@@ -1530,7 +1616,7 @@ page.getByRole(AriaRole.BUTTON,
 ```
 
 ```csharp
-await Expect(page
+await Expect(Page
     .GetByRole(AriaRole.Heading, new() { Name = "Sign up" }))
     .ToBeVisibleAsync();
 
@@ -1582,7 +1668,7 @@ expect(page.get_by_title("Issues count")).to_have_text("25 issues")
 ```
 
 ```csharp
-await Expect(page.GetByTitle("Issues count")).toHaveText("25 issues");
+await Expect(Page.GetByTitle("Issues count")).toHaveText("25 issues");
 ```
 
 ## test-config-snapshot-path-template
@@ -1593,23 +1679,10 @@ This option configures a template controlling location of snapshots generated by
 
 **Usage**
 
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-  testDir: './tests',
-  snapshotPathTemplate: '{testDir}/__screenshots__/{testFilePath}/{arg}{ext}',
-});
-```
-
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
   testDir: './tests',
   snapshotPathTemplate: '{testDir}/__screenshots__/{testFilePath}/{arg}{ext}',
 });
@@ -1621,7 +1694,7 @@ The value might include some "tokens" that will be replaced with actual values d
 
 Consider the following file structure:
 
-```
+```txt
 playwright.config.ts
 tests/
 └── page/
@@ -1630,20 +1703,8 @@ tests/
 
 And the following `page-click.spec.ts` that uses `toHaveScreenshot()` call:
 
-```js tab=js-ts
-// page-click.spec.ts
+```js title="page-click.spec.ts"
 import { test, expect } from '@playwright/test';
-
-test.describe('suite', () => {
-  test('test should work', async ({ page }) => {
-    await expect(page).toHaveScreenshot(['foo', 'bar', 'baz.png']);
-  });
-});
-```
-
-```js tab=js-js
-// page-click.spec.js
-const { test, expect } = require('@playwright/test');
 
 test.describe('suite', () => {
   test('test should work', async ({ page }) => {
@@ -1678,27 +1739,10 @@ Each token can be preceded with a single character that will be used **only if**
 
 Consider the following config:
 
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-  snapshotPathTemplate: '__screenshots__{/projectName}/{testFilePath}/{arg}{ext}',
-  testMatch: 'example.spec.ts',
-  projects: [
-    { use: { browserName: 'firefox' } },
-    { name: 'chromium', use: { browserName: 'chromium' } },
-  ],
-});
-```
-
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
   snapshotPathTemplate: '__screenshots__{/projectName}/{testFilePath}/{arg}{ext}',
   testMatch: 'example.spec.ts',
   projects: [

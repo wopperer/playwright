@@ -94,6 +94,11 @@ it('should transfer arrays as arrays, not objects', async ({ page }) => {
   expect(result).toBe(true);
 });
 
+it('should transfer bigint', async ({ page }) => {
+  expect(await page.evaluate(() => 42n)).toBe(42n);
+  expect(await page.evaluate(a => a, 17n)).toBe(17n);
+});
+
 it('should transfer maps as empty objects', async ({ page }) => {
   const result = await page.evaluate(a => a.x.constructor.name + ' ' + JSON.stringify(a.x), { x: new Map([[1, 2]]) });
   expect(result).toBe('Object {}');
@@ -447,7 +452,7 @@ it('should throw if underlying element was disposed', async ({ page }) => {
   await element.dispose();
   let error = null;
   await page.evaluate(e => e.textContent, element).catch(e => error = e);
-  expect(error.message).toContain('JSHandle is disposed');
+  expect(error.message).toContain('no object with guid');
 });
 
 it('should simulate a user gesture', async ({ page }) => {
@@ -649,6 +654,23 @@ it('should not use toJSON in jsonValue', async ({ page }) => {
   expect(await resultHandle.jsonValue()).toEqual({ data: 'data', toJSON: {} });
 });
 
+it('should ignore buggy toJSON', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    class Foo {
+      toJSON() {
+        throw new Error('Bad');
+      }
+    }
+    class Bar {
+      get toJSON() {
+        throw new Error('Also bad');
+      }
+    }
+    return { foo: new Foo(), bar: new Bar() };
+  });
+  expect(result).toEqual({ foo: {}, bar: {} });
+});
+
 it('should not expose the injected script export', async ({ page }) => {
   expect(await page.evaluate('typeof pwExport === "undefined"')).toBe(true);
 });
@@ -681,6 +703,21 @@ it('should work with overridden Object.defineProperty', async ({ page, server })
   expect(await page.evaluate('1+2')).toBe(3);
 });
 
+it('should work with busted Array.prototype.map/push', async ({ page, server }) => {
+  server.setRoute('/test', (req, res) => {
+    res.writeHead(200, {
+      'content-type': 'text/html',
+    });
+    res.end(`<script>
+      Array.prototype.map = null;
+      Array.prototype.push = null;
+    </script>`);
+  });
+  await page.goto(server.PREFIX + '/test');
+  expect(await page.evaluate('1+2')).toBe(3);
+  expect(await ((await page.evaluateHandle('1+2')).jsonValue())).toBe(3);
+});
+
 it('should work with overridden globalThis.Window/Document/Node', async ({ page, server }) => {
   const testCases = [
     // @ts-ignore
@@ -703,6 +740,26 @@ it('should work with overridden globalThis.Window/Document/Node', async ({ page,
   }
 });
 
+it('should work with overridden URL/Date/RegExp', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21109' });
+  const testCases = [
+    // @ts-ignore
+    () => globalThis.URL = 'foo',
+    // @ts-ignore
+    () => globalThis.RegExp = 'foo',
+    // @ts-ignore
+    () => globalThis.Date = 'foo',
+  ];
+  for (const testCase of testCases) {
+    await it.step(testCase.toString(), async () => {
+      await page.goto(server.EMPTY_PAGE);
+      await page.evaluate(testCase);
+      expect(await page.evaluate('1+2')).toBe(3);
+      expect(await page.evaluate(() => ({ 'a': 2023 }))).toEqual({ 'a': 2023 });
+    });
+  }
+});
+
 it('should expose utilityScript', async ({ page }) => {
   const result = await (page.mainFrame() as any)._evaluateExposeUtilityScript((utilityScript, { a }) => {
     return { utils: 'parseEvaluationResultValue' in utilityScript, a };
@@ -711,4 +768,12 @@ it('should expose utilityScript', async ({ page }) => {
     a: 42,
     utils: true,
   });
+});
+
+it('should work with Array.from/map', async ({ page }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28520' });
+  expect(await page.evaluate(() => {
+    const r = (str, amount) => Array.from(Array(amount)).map(() => str).join('');
+    return r('([a-f0-9]{2})', 3);
+  })).toBe('([a-f0-9]{2})([a-f0-9]{2})([a-f0-9]{2})');
 });

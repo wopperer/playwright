@@ -25,13 +25,13 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@isomorphic': path.resolve(__dirname, '../playwright-core/src/server/isomorphic'),
+      '@isomorphic': path.resolve(__dirname, '../playwright-core/src/utils/isomorphic'),
       '@protocol': path.resolve(__dirname, '../protocol/src'),
       '@web': path.resolve(__dirname, '../web/src'),
     },
   },
   build: {
-    outDir: path.resolve(__dirname, '../playwright-core/lib/webpack/recorder'),
+    outDir: path.resolve(__dirname, '../playwright-core/lib/vite/recorder'),
     emptyOutDir: true,
     rollupOptions: {
       output: {

@@ -3,8 +3,6 @@ id: pages
 title: "Pages"
 ---
 
-<!-- TOC -->
-
 ## Pages
 
 Each [BrowserContext] can have multiple pages. A [Page] refers to a single tab or a popup window within a browser
@@ -195,7 +193,7 @@ If the action that triggers the new page is unknown, the following pattern can b
 context.on('page', async page => {
   await page.waitForLoadState();
   console.log(await page.title());
-})
+});
 ```
 
 ```java
@@ -295,7 +293,7 @@ If the action that triggers the popup is unknown, the following pattern can be u
 page.on('popup', async popup => {
   await popup.waitForLoadState();
   console.log(await popup.title());
-})
+});
 ```
 
 ```java

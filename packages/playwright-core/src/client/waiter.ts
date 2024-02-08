@@ -16,7 +16,7 @@
 
 import type { EventEmitter } from 'events';
 import { rewriteErrorMessage } from '../utils/stackTrace';
-import { TimeoutError } from '../common/errors';
+import { TimeoutError } from './errors';
 import { createGuid } from '../utils';
 import type * as channels from '@protocol/channels';
 import type { ChannelOwner } from './channelOwner';
@@ -47,12 +47,12 @@ export class Waiter {
 
   async waitForEvent<T = void>(emitter: EventEmitter, event: string, predicate?: (arg: T) => boolean | Promise<boolean>): Promise<T> {
     const { promise, dispose } = waitForEvent(emitter, event, predicate);
-    return this.waitForPromise(promise, dispose);
+    return await this.waitForPromise(promise, dispose);
   }
 
-  rejectOnEvent<T = void>(emitter: EventEmitter, event: string, error: Error, predicate?: (arg: T) => boolean | Promise<boolean>) {
+  rejectOnEvent<T = void>(emitter: EventEmitter, event: string, error: Error | (() => Error), predicate?: (arg: T) => boolean | Promise<boolean>) {
     const { promise, dispose } = waitForEvent(emitter, event, predicate);
-    this._rejectOn(promise.then(() => { throw error; }), dispose);
+    this._rejectOn(promise.then(() => { throw (typeof error === 'function' ? error() : error); }), dispose);
   }
 
   rejectOnTimeout(timeout: number, message: string) {

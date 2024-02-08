@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+import os from 'os';
 import { test as it, expect } from './pageTest';
 import { verifyViewport, attachFrame } from '../config/utils';
 import type { Route } from 'playwright-core';
@@ -228,14 +229,14 @@ it.describe('page screenshot', () => {
     await verifyViewport(page, 500, 500);
   });
 
-  it('should allow transparency', async ({ page, browserName }) => {
+  it('should allow transparency', async ({ page, browserName, platform, headless }) => {
     it.fail(browserName === 'firefox');
 
-    await page.setViewportSize({ width: 50, height: 150 });
+    await page.setViewportSize({ width: 300, height: 300 });
     await page.setContent(`
       <style>
         body { margin: 0 }
-        div { width: 50px; height: 50px; }
+        div { width: 300px; height: 100px; }
       </style>
       <div style="background:black"></div>
       <div style="background:white"></div>
@@ -268,7 +269,8 @@ it.describe('page screenshot', () => {
     expect(screenshot).toMatchSnapshot('screenshot-clip-odd-size.png');
   });
 
-  it('should work for canvas', async ({ page, server }) => {
+  it('should work for canvas', async ({ page, server, isElectron, isMac }) => {
+    it.fixme(isElectron && isMac, 'Fails on the bots');
     await page.setViewportSize({ width: 500, height: 500 });
     await page.goto(server.PREFIX + '/screenshots/canvas.html');
     const screenshot = await page.screenshot();
@@ -307,8 +309,9 @@ it.describe('page screenshot', () => {
     }
   });
 
-  it('should work for webgl', async ({ page, server, browserName }) => {
+  it('should work for webgl', async ({ page, server, browserName, platform }) => {
     it.fixme(browserName === 'firefox');
+    it.fixme(browserName === 'chromium' && platform === 'darwin' && os.arch() === 'arm64', 'SwiftShader is not available on macOS-arm64 - https://github.com/microsoft/playwright/issues/28216');
 
     await page.setViewportSize({ width: 640, height: 480 });
     await page.goto(server.PREFIX + '/screenshots/webgl.html');
@@ -533,6 +536,45 @@ it.describe('page screenshot', () => {
       });
       await page.screenshot({ mask: [page.locator('non-existent')] });
     });
+
+    it('should work when mask color is not pink #F0F', async ({ page, server }) => {
+      await page.setViewportSize({ width: 500, height: 500 });
+      await page.goto(server.PREFIX + '/grid.html');
+      expect(await page.screenshot({
+        mask: [page.locator('div').nth(5)],
+        maskColor: '#00FF00',
+      })).toMatchSnapshot('mask-color-should-work.png');
+    });
+
+    it('should hide elements based on attr', async ({ page, server }) => {
+      await page.setViewportSize({ width: 500, height: 500 });
+      await page.goto(server.PREFIX + '/grid.html');
+      await page.locator('div').nth(5).evaluate(element => {
+        element.setAttribute('data-test-screenshot', 'hide');
+      });
+      expect(await page.screenshot({
+        style: `[data-test-screenshot="hide"] {
+          visibility: hidden;
+        }`
+      })).toMatchSnapshot('hide-should-work.png');
+      const visibility = await page.locator('div').nth(5).evaluate(element => element.style.visibility);
+      expect(visibility).toBe('');
+    });
+
+    it('should remove elements based on attr', async ({ page, server }) => {
+      await page.setViewportSize({ width: 500, height: 500 });
+      await page.goto(server.PREFIX + '/grid.html');
+      await page.locator('div').nth(5).evaluate(element => {
+        element.setAttribute('data-test-screenshot', 'remove');
+      });
+      expect(await page.screenshot({
+        style: `[data-test-screenshot="remove"] {
+          display: none;
+        }`
+      })).toMatchSnapshot('remove-should-work.png');
+      const display = await page.locator('div').nth(5).evaluate(element => element.style.display);
+      expect(display).toBe('');
+    });
   });
 });
 
@@ -648,7 +690,7 @@ it.describe('page screenshot animations', () => {
     expect(comparePNGs(buffer1, buffer2, { maxDiffPixels: 50 })).not.toBe(null);
   });
 
-  it('should fire transitionend for finite transitions', async ({ page, server }) => {
+  it('should fire transitionend for finite transitions', async ({ page, server, browserName, platform }) => {
     await page.goto(server.PREFIX + '/css-transition.html');
     const div = page.locator('div');
     await div.evaluate(el => {
@@ -674,7 +716,7 @@ it.describe('page screenshot animations', () => {
     expect(await page.evaluate(() => window['__TRANSITION_END'])).toBe(true);
   });
 
-  it('should capture screenshots after layoutchanges in transitionend event', async ({ page, server }) => {
+  it('should capture screenshots after layoutchanges in transitionend event', async ({ page, server, browserName, platform }) => {
     await page.goto(server.PREFIX + '/css-transition.html');
     const div = page.locator('div');
     await div.evaluate(el => {
@@ -807,12 +849,39 @@ it.describe('page screenshot animations', () => {
     // Ensure CSS animation is finite.
     expect(await div.evaluate(async el => Number.isFinite(el.getAnimations()[0].effect.getComputedTiming().endTime))).toBe(true);
     await Promise.all([
-      page.screenshot({ animations: 'disabled' }),
       page.waitForEvent('console', msg => msg.text() === 'animationend'),
+      page.screenshot({ animations: 'disabled' }),
     ]);
     expect(await page.evaluate(() => window._EVENTS)).toEqual([
       'onfinish', 'animationend'
     ]);
+  });
+
+  it('should wait for fonts to load', async ({ page, server, isWindows, isAndroid }) => {
+    it.fixme(isWindows, 'This requires a windows-specific test expectations. https://github.com/microsoft/playwright/issues/12707');
+    it.skip(isAndroid, 'Different viewport');
+    await page.setViewportSize({ width: 500, height: 500 });
+    const fontRequestPromise = new Promise<any>(resolve => {
+      // Stall font loading.
+      server.setRoute('/webfont/iconfont.woff2', (request, response) => {
+        resolve({ request, response });
+      });
+    });
+    await page.goto(server.PREFIX + '/webfont/webfont.html', {
+      waitUntil: 'domcontentloaded', // 'load' will not happen if webfont is pending
+    });
+
+    // Make sure screenshot times out while webfont is stalled.
+    const error = await page.screenshot({ timeout: 200, }).catch(e => e);
+    expect(error.message).toContain('waiting for fonts to load...');
+    expect(error.message).toContain('Timeout 200ms exceeded');
+
+    const fontRequest = await fontRequestPromise;
+    server.serveFile(fontRequest.request, fontRequest.response);
+    const iconsScreenshot = await page.screenshot();
+    expect(iconsScreenshot).toMatchSnapshot('screenshot-web-font.png', {
+      maxDiffPixels: 50,
+    });
   });
 });
 
@@ -829,4 +898,55 @@ it('should throw if screenshot size is too large', async ({ page, browserName, i
     if (browserName === 'firefox' || (browserName === 'webkit' && !isMac))
       expect(exception.message).toContain('Cannot take screenshot larger than 32767');
   }
+});
+
+it('page screenshot should capture css transform', async function({ page, browserName, isElectron, isAndroid }) {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/26447' });
+  it.fixme(browserName === 'webkit');
+  it.fixme(isElectron || isAndroid, 'Returns screenshot of a different size.');
+  await page.setContent(`
+    <style>
+    .container {
+      width: 150px;
+      height: 150px;
+      margin: 75px 0 0 75px;
+      border: none;
+    }
+
+    .cube {
+      width: 100%;
+      height: 100%;
+      perspective: 550px;
+      perspective-origin: 150% 150%;
+    }
+
+    .face {
+      display: block;
+      position: absolute;
+      width: 100px;
+      height: 100px;
+      border: none;
+    }
+
+    .right {
+      background: rgba(196, 0, 0, 0.7);
+      transform: rotateY(70deg);
+    }
+
+    </style>
+    <div class="container">
+      <div class="cube showbf">
+        <div class="face right"></div>
+      </div>
+    </div>
+  `);
+
+  await expect(page).toHaveScreenshot();
+});
+
+it('should capture css box-shadow', async ({ page, isElectron, isAndroid }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21620' });
+  it.fixme(isElectron || isAndroid, 'Returns screenshot of a different size.');
+  await page.setContent(`<div style="box-shadow: red 10px 10px 10px; width: 50px; height: 50px;"></div>`);
+  await expect(page).toHaveScreenshot();
 });

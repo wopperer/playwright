@@ -31,7 +31,7 @@ export type SnapshotData = {
   collectionTime: number,
 };
 
-export function frameSnapshotStreamer(snapshotStreamer: string) {
+export function frameSnapshotStreamer(snapshotStreamer: string, removeNoScript: boolean) {
   // Communication with Playwright.
   if ((window as any)[snapshotStreamer])
     return;
@@ -45,6 +45,8 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
   const kScrollLeftAttribute = '__playwright_scroll_left_';
   const kStyleSheetAttribute = '__playwright_style_sheet_';
   const kTargetAttribute = '__playwright_target__';
+  const kCustomElementsAttribute = '__playwright_custom_elements__';
+  const kCurrentSrcAttribute = '__playwright_current_src__';
 
   // Symbols for our own info on Nodes/StyleSheets.
   const kSnapshotFrameId = Symbol('__playwright_snapshot_frameid_');
@@ -79,7 +81,6 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
   }
 
   class Streamer {
-    private _removeNoScript = true;
     private _lastSnapshotNumber = 0;
     private _staleStyleSheets = new Set<CSSStyleSheet>();
     private _readingStyleSheet = false;  // To avoid invalidating due to our own reads.
@@ -87,6 +88,10 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
     private _observer: MutationObserver;
 
     constructor() {
+      const invalidateCSSGroupingRule = (rule: CSSGroupingRule) => {
+        if (rule.parentStyleSheet)
+          this._invalidateStyleSheet(rule.parentStyleSheet);
+      };
       this._interceptNativeMethod(window.CSSStyleSheet.prototype, 'insertRule', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
       this._interceptNativeMethod(window.CSSStyleSheet.prototype, 'deleteRule', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
       this._interceptNativeMethod(window.CSSStyleSheet.prototype, 'addRule', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
@@ -94,6 +99,9 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
       this._interceptNativeGetter(window.CSSStyleSheet.prototype, 'rules', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
       this._interceptNativeGetter(window.CSSStyleSheet.prototype, 'cssRules', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
       this._interceptNativeMethod(window.CSSStyleSheet.prototype, 'replaceSync', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
+      this._interceptNativeMethod(window.CSSGroupingRule.prototype, 'insertRule', invalidateCSSGroupingRule);
+      this._interceptNativeMethod(window.CSSGroupingRule.prototype, 'deleteRule', invalidateCSSGroupingRule);
+      this._interceptNativeGetter(window.CSSGroupingRule.prototype, 'cssRules', invalidateCSSGroupingRule);
       this._interceptNativeAsyncMethod(window.CSSStyleSheet.prototype, 'replace', (sheet: CSSStyleSheet) => this._invalidateStyleSheet(sheet));
 
       this._fakeBase = document.createElement('base');
@@ -101,6 +109,42 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
       this._observer = new MutationObserver(list => this._handleMutations(list));
       const observerConfig = { attributes: true, subtree: true };
       this._observer.observe(document, observerConfig);
+      this._refreshListenersWhenNeeded();
+    }
+
+    private _refreshListenersWhenNeeded() {
+      this._refreshListeners();
+
+      const customEventName = '__playwright_snapshotter_global_listeners_check__';
+
+      let seenEvent = false;
+      const handleCustomEvent = () => seenEvent = true;
+      window.addEventListener(customEventName, handleCustomEvent);
+
+      const observer = new MutationObserver(entries => {
+        // Check for new documentElement in case we need to reinstall document listeners.
+        const newDocumentElement = entries.some(entry => Array.from(entry.addedNodes).includes(document.documentElement));
+        if (newDocumentElement) {
+          // New documentElement - let's check whether listeners are still here.
+          seenEvent = false;
+          window.dispatchEvent(new CustomEvent(customEventName));
+          if (!seenEvent) {
+            // Listener did not fire. Reattach the listener and notify.
+            window.addEventListener(customEventName, handleCustomEvent);
+            this._refreshListeners();
+          }
+        }
+      });
+      observer.observe(document, { childList: true });
+    }
+
+    private _refreshListeners() {
+      (document as any).addEventListener('__playwright_target__', (event: CustomEvent) => {
+        if (!event.detail)
+          return;
+        const callId = event.detail as string;
+        (event.composedPath()[0] as any).__playwright_target__ = callId;
+      });
     }
 
     private _interceptNativeMethod(obj: any, method: string, cb: (thisObj: any, result: any) => void) {
@@ -274,27 +318,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
       // Ensure we are up to date.
       this._handleMutations(this._observer.takeRecords());
 
-      // Restore scroll positions for all ancestors of action target elements
-      // that will show the highlight/red dot in the trace viewer.
-      // Workaround for chromium regression:
-      // https://bugs.chromium.org/p/chromium/issues/detail?id=1324419
-      // https://github.com/microsoft/playwright/issues/14037
-      // TODO: remove after chromium is fixed?
-      const elementsToRestoreScrollPosition = new Set<Node>();
-      const findElementsToRestoreScrollPositionRecursively = (element: Element) => {
-        let shouldAdd = element.hasAttribute(kTargetAttribute);
-        for (let child = element.firstElementChild; child; child = child.nextElementSibling)
-          shouldAdd = shouldAdd || findElementsToRestoreScrollPositionRecursively(child);
-        if (element.shadowRoot) {
-          for (let child = element.shadowRoot.firstElementChild; child; child = child.nextElementSibling)
-            shouldAdd = shouldAdd || findElementsToRestoreScrollPositionRecursively(child);
-        }
-        if (shouldAdd)
-          elementsToRestoreScrollPosition.add(element);
-        return shouldAdd;
-      };
-      if (document.documentElement)
-        findElementsToRestoreScrollPositionRecursively(document.documentElement);
+      const definedCustomElements = new Set<string>();
 
       const visitNode = (node: Node | ShadowRoot): { equals: boolean, n: NodeSnapshot } | undefined => {
         const nodeType = node.nodeType;
@@ -312,11 +336,11 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
           if (rel === 'preload' || rel === 'prefetch')
             return;
         }
-        if (this._removeNoScript && nodeName === 'NOSCRIPT')
+        if (removeNoScript && nodeName === 'NOSCRIPT')
           return;
         if (nodeName === 'META' && (node as HTMLMetaElement).httpEquiv.toLowerCase() === 'content-security-policy')
           return;
-        // Skip iframes which are inside document's head as they are not visisble.
+        // Skip iframes which are inside document's head as they are not visible.
         // See https://github.com/microsoft/playwright/issues/12005.
         if ((nodeName === 'IFRAME' || nodeName === 'FRAME') && headNesting)
           return;
@@ -385,6 +409,8 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
 
         if (nodeType === Node.ELEMENT_NODE) {
           const element = node as Element;
+          if (element.localName.includes('-') && window.customElements?.get(element.localName))
+            definedCustomElements.add(element.localName);
           if (nodeName === 'INPUT' || nodeName === 'TEXTAREA') {
             const value = (element as HTMLInputElement).value;
             expectValue(kValueAttribute);
@@ -403,12 +429,12 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
             expectValue(value);
             attrs[kSelectedAttribute] = value;
           }
-          if (elementsToRestoreScrollPosition.has(element) && element.scrollTop) {
+          if (element.scrollTop) {
             expectValue(kScrollTopAttribute);
             expectValue(element.scrollTop);
             attrs[kScrollTopAttribute] = '' + element.scrollTop;
           }
-          if (elementsToRestoreScrollPosition.has(element) && element.scrollLeft) {
+          if (element.scrollLeft) {
             expectValue(kScrollLeftAttribute);
             expectValue(element.scrollLeft);
             attrs[kScrollLeftAttribute] = '' + element.scrollLeft;
@@ -417,6 +443,11 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
             ++shadowDomNesting;
             visitChild(element.shadowRoot);
             --shadowDomNesting;
+          }
+          if ('__playwright_target__' in element) {
+            expectValue(kTargetAttribute);
+            expectValue(element['__playwright_target__']);
+            attrs[kTargetAttribute] = element['__playwright_target__'] as string;
           }
         }
 
@@ -453,6 +484,22 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
           attrs[name] = value;
         }
 
+        // Process custom elements before bailing out since they depend on JS, not the DOM.
+        if (nodeName === 'BODY' && definedCustomElements.size) {
+          const value = [...definedCustomElements].join(',');
+          expectValue(kCustomElementsAttribute);
+          expectValue(value);
+          attrs[kCustomElementsAttribute] = value;
+        }
+
+        // Process currentSrc before bailing out since it depends on JS, not the DOM.
+        if (nodeName === 'IMG' || nodeName === 'PICTURE') {
+          const value = nodeName === 'PICTURE' ? '' : this._sanitizeUrl((node as HTMLImageElement).currentSrc);
+          expectValue(kCurrentSrcAttribute);
+          expectValue(value);
+          attrs[kCurrentSrcAttribute] = value;
+        }
+
         // We can skip attributes comparison because nothing else has changed,
         // and mutation observer didn't tell us about the attributes.
         if (equals && data.attributesCached && !shadowDomNesting)
@@ -464,7 +511,7 @@ export function frameSnapshotStreamer(snapshotStreamer: string) {
             const name = element.attributes[i].name;
             if (nodeName === 'LINK' && name === 'integrity')
               continue;
-            if (nodeName === 'IFRAME' && (name === 'src' || name === 'sandbox'))
+            if (nodeName === 'IFRAME' && (name === 'src' || name === 'srcdoc' || name === 'sandbox'))
               continue;
             if (nodeName === 'FRAME' && name === 'src')
               continue;

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { test, expect, stripAnsi } from './playwright-test-fixtures';
+import { test, expect } from './playwright-test-fixtures';
 
 function monotonicTime(): number {
   const [seconds, nanoseconds] = process.hrtime();
@@ -24,7 +24,7 @@ function monotonicTime(): number {
 test('should collect stdio', async ({ runInlineTest }) => {
   const { exitCode, report } = await runInlineTest({
     'stdio.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('stdio', () => {
         process.stdout.write('stdout text');
         process.stdout.write(Buffer.from('stdout buffer'));
@@ -40,13 +40,37 @@ test('should collect stdio', async ({ runInlineTest }) => {
   expect(stderr).toEqual([{ text: 'stderr text' }, { buffer: Buffer.from('stderr buffer').toString('base64') }]);
 });
 
+test('should collect stdio from forked process', async ({ runInlineTest }) => {
+  const { exitCode, report } = await runInlineTest({
+    'stdio.spec.js': `
+      import { test } from '@playwright/test';
+      import { fork } from 'child_process';
+      test('stdio', async () => {
+        const child = fork('fork.js');
+        await new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+      });
+    `,
+    'fork.js': `
+      process.stdout.write('stdout text');
+      process.stdout.write(Buffer.from('stdout buffer'));
+      process.stderr.write('stderr text');
+      process.stderr.write(Buffer.from('stderr buffer'));
+    `
+  });
+  expect(exitCode).toBe(0);
+  const testResult = report.suites[0].specs[0].tests[0].results[0];
+  const { stdout, stderr } = testResult;
+  expect(stdout.map(e => Buffer.from((e as any).buffer, 'base64').toString()).join('')).toEqual('stdout textstdout buffer');
+  expect(stderr.map(e => Buffer.from((e as any).buffer, 'base64').toString()).join('')).toEqual('stderr textstderr buffer');
+});
+
 test('should work with not defined errors', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'is-not-defined-error.spec.ts': `
       foo();
     `
   });
-  expect(stripAnsi(result.output)).toContain('foo is not defined');
+  expect(result.output).toContain('foo is not defined');
   expect(result.exitCode).toBe(1);
 });
 
@@ -61,7 +85,7 @@ test('should work with typescript', async ({ runInlineTest }) => {
     'typescript.spec.ts': `
       import './global-foo';
 
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('should find global foo', () => {
         expect(global['foo']).toBe(true);
       });
@@ -78,7 +102,7 @@ test('should work with typescript', async ({ runInlineTest }) => {
 test('should repeat each', async ({ runInlineTest }) => {
   const { exitCode, report, passed } = await runInlineTest({
     'one-success.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('succeeds', () => {
         expect(1 + 1).toBe(2);
       });
@@ -94,7 +118,7 @@ test('should repeat each', async ({ runInlineTest }) => {
 test('should allow flaky', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.test.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('flake', async ({}, testInfo) => {
         expect(testInfo.retry).toBe(1);
       });
@@ -107,7 +131,7 @@ test('should allow flaky', async ({ runInlineTest }) => {
 test('should fail on unexpected pass', async ({ runInlineTest }) => {
   const { exitCode, failed, output } = await runInlineTest({
     'unexpected-pass.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('succeeds', () => {
         test.fail();
         expect(1 + 1).toBe(2);
@@ -123,7 +147,7 @@ test('should respect global timeout', async ({ runInlineTest }) => {
   const now = monotonicTime();
   const { exitCode, output } = await runInlineTest({
     'one-timeout.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('timeout', async () => {
         await new Promise(f => setTimeout(f, 10000));
       });
@@ -163,7 +187,6 @@ test('should exit with code 0 with --pass-with-no-tests', async ({ runInlineTest
     `,
   }, undefined, undefined, { additionalArgs: ['--pass-with-no-tests'] });
   expect(result.exitCode).toBe(0);
-  expect(result.output).toContain(`Running 0 tests using 0 workers`);
 });
 
 test('should exit with code 1 when config is not found', async ({ runInlineTest }) => {

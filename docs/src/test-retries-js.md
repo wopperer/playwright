@@ -1,7 +1,9 @@
 ---
 id: test-retries
-title: "Test retry"
+title: "Retries"
 ---
+
+## Introduction
 
 Test retries are a way to automatically re-run a test when it fails. This is useful when a test is flaky and fails intermittently. Test retries are configured in the [configuration file](./test-configuration.md).
 
@@ -11,18 +13,7 @@ Playwright Test runs tests in worker processes. These processes are OS processes
 
 Consider the following snippet:
 
-```js tab=js-js
-const { test } = require('@playwright/test');
-
-test.describe('suite', () => {
-  test.beforeAll(async () => { /* ... */ });
-  test('first good', async ({ page }) => { /* ... */ });
-  test('second flaky', async ({ page }) => { /* ... */ });
-  test('third good', async ({ page }) => { /* ... */ });
-});
-```
-
-```js tab=js-ts
+```js
 import { test } from '@playwright/test';
 
 test.describe('suite', () => {
@@ -30,6 +21,7 @@ test.describe('suite', () => {
   test('first good', async ({ page }) => { /* ... */ });
   test('second flaky', async ({ page }) => { /* ... */ });
   test('third good', async ({ page }) => { /* ... */ });
+  test.afterAll(async () => { /* ... */ });
 });
 ```
 
@@ -39,51 +31,45 @@ When **all tests pass**, they will run in order in the same worker process.
   * `first good` passes
   * `second flaky` passes
   * `third good` passes
+  * `afterAll` hook runs
 
 Should **any test fail**, Playwright Test will discard the entire worker process along with the browser and will start a new one. Testing will continue in the new worker process starting with the next test.
 * Worker process #1 starts
   * `beforeAll` hook runs
   * `first good` passes
   * `second flaky` fails
+  * `afterAll` hook runs
 * Worker process #2 starts
   * `beforeAll` hook runs again
   * `third good` passes
+  * `afterAll` hook runs
 
 If you **enable [retries](#retries)**, second worker process will start by retrying the failed test and continue from there.
 * Worker process #1 starts
   * `beforeAll` hook runs
   * `first good` passes
   * `second flaky` fails
+  * `afterAll` hook runs
 * Worker process #2 starts
   * `beforeAll` hook runs again
   * `second flaky` is retried and passes
   * `third good` passes
+  * `afterAll` hook runs
 
 This scheme works perfectly for independent tests and guarantees that failing tests can't affect healthy ones.
 
 ## Retries
 
-Playwright Test supports **test retries**. When enabled, failing tests will be retried multiple times until they pass, or until the maximum number of retries is reached. By default failing tests are not retried.
+Playwright supports **test retries**. When enabled, failing tests will be retried multiple times until they pass, or until the maximum number of retries is reached. By default failing tests are not retried.
 
 ```bash
 # Give failing tests 3 retry attempts
 npx playwright test --retries=3
 ```
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
+You can configure retries in the configuration file:
 
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  // Give failing tests 3 retry attempts
-  retries: 3,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -112,17 +98,7 @@ Running 3 tests using 1 worker
 
 You can detect retries at runtime with [`property: TestInfo.retry`], which is accessible to any test, hook or fixture. Here is an example that clears some server-side state before a retry.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test('my test', async ({ page }, testInfo) => {
-  if (testInfo.retry)
-    await cleanSomeCachesOnTheServer();
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('my test', async ({ page }, testInfo) => {
@@ -134,24 +110,7 @@ test('my test', async ({ page }, testInfo) => {
 
 You can specify retries for a specific group of tests or a single file with [`method: Test.describe.configure`].
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.describe(() => {
-  // All tests in this describe group will get 2 retry attempts.
-  test.describe.configure({ retries: 2 });
-
-  test('test 1', async ({ page }) => {
-    // ...
-  });
-
-  test('test 2', async ({ page }) => {
-    // ...
-  });
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.describe(() => {
@@ -174,18 +133,7 @@ Use [`method: Test.describe.serial`] to group dependent tests to ensure they wil
 
 Consider the following snippet that uses `test.describe.serial`:
 
-```js tab=js-js
-const { test } = require('@playwright/test');
-
-test.describe.configure({ mode: 'serial' });
-
-test.beforeAll(async () => { /* ... */ });
-test('first good', async ({ page }) => { /* ... */ });
-test('second flaky', async ({ page }) => { /* ... */ });
-test('third good', async ({ page }) => { /* ... */ });
-```
-
-```js tab=js-ts
+```js
 import { test } from '@playwright/test';
 
 test.describe.configure({ mode: 'serial' });
@@ -223,8 +171,7 @@ It is usually better to make your tests isolated, so they can be efficiently run
 
 Playwright Test creates an isolated [Page] object for each test. However, if you'd like to reuse a single [Page] object between multiple tests, you can create your own in [`method: Test.beforeAll`] and close it in [`method: Test.afterAll`].
 
-```js tab=js-js
-// example.spec.js
+```js tab=js-js title="example.spec.js"
 // @ts-check
 
 const { test } = require('@playwright/test');
@@ -251,10 +198,8 @@ test('runs second', async () => {
 });
 ```
 
-```js tab=js-ts
-// example.spec.ts
-
-import { test, Page } from '@playwright/test';
+```js tab=js-ts title="example.spec.ts"
+import { test, type Page } from '@playwright/test';
 
 test.describe.configure({ mode: 'serial' });
 

@@ -41,6 +41,26 @@ const { _electron: electron } = require('playwright');
 
 This event is issued when the application closes.
 
+## event: ElectronApplication.console
+* since: v1.42
+- argument: <[ConsoleMessage]>
+
+Emitted when JavaScript within the Electron main process calls one of console API methods, e.g. `console.log` or `console.dir`.
+
+The arguments passed into `console.log` are available on the [ConsoleMessage] event handler argument.
+
+**Usage**
+
+```js
+electronApp.on('console', async msg => {
+  const values = [];
+  for (const arg of msg.args())
+    values.push(await arg.jsonValue());
+  console.log(...values);
+});
+await electronApp.evaluate(() => console.log('hello', 5, { foo: 'bar' }));
+```
+
 ## event: ElectronApplication.window
 * since: v1.9
 - argument: <[Page]>
@@ -87,6 +107,9 @@ some additional values that are not serializable by `JSON`: `-0`, `NaN`, `Infini
 ### param: ElectronApplication.evaluate.expression = %%-evaluate-expression-%%
 * since: v1.9
 
+### param: ElectronApplication.evaluate.expression = %%-js-electron-evaluate-workerfunction-%%
+* since: v1.9
+
 ### param: ElectronApplication.evaluate.arg
 * since: v1.9
 - `arg` ?<[EvaluationArgument]>
@@ -107,6 +130,9 @@ If the function passed to the [`method: ElectronApplication.evaluateHandle`] ret
 ### param: ElectronApplication.evaluateHandle.expression = %%-evaluate-expression-%%
 * since: v1.9
 
+### param: ElectronApplication.evaluateHandle.expression = %%-js-electron-evaluate-workerfunction-%%
+* since: v1.9
+
 ### param: ElectronApplication.evaluateHandle.arg
 * since: v1.9
 - `arg` ?<[EvaluationArgument]>
@@ -122,12 +148,20 @@ Convenience method that waits for the first application window to be opened.
 **Usage**
 
 ```js
-  const electronApp = await electron.launch({
-    args: ['main.js']
-  });
-  const window = await electronApp.firstWindow();
-  // ...
+const electronApp = await electron.launch({
+  args: ['main.js']
+});
+const window = await electronApp.firstWindow();
+// ...
 ```
+
+### option: ElectronApplication.firstWindow.timeout
+* since: v1.33
+- `timeout` ?<[float]>
+
+Maximum time to wait for in milliseconds. Defaults to `30000` (30 seconds).
+Pass `0` to disable timeout. The default value can be changed by using the
+[`method: BrowserContext.setDefaultTimeout`].
 
 ## method: ElectronApplication.process
 * since: v1.21

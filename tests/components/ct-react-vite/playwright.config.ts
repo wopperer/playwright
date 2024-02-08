@@ -21,10 +21,13 @@ export default defineConfig({
   testDir: 'tests',
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  reporter: 'html',
+  reporter: process.env.CI ? 'html' : 'line',
   use: {
     trace: 'on-first-retry',
     ctViteConfig: {
+      build: {
+        assetsInlineLimit: 0,
+      },
       resolve: {
         alias: {
           '@': resolve(__dirname, './src'),

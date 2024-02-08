@@ -24,19 +24,17 @@ import { JSHandle } from './jsHandle';
 import { Request, Response, Route, WebSocket } from './network';
 import { Page, BindingCall } from './page';
 import { Worker } from './worker';
-import { ConsoleMessage } from './consoleMessage';
 import { Dialog } from './dialog';
-import { parseError } from '../protocol/serializers';
+import { parseError, TargetClosedError } from './errors';
 import { CDPSession } from './cdpSession';
 import { Playwright } from './playwright';
 import { Electron, ElectronApplication } from './electron';
 import type * as channels from '@protocol/channels';
 import { Stream } from './stream';
 import { WritableStream } from './writableStream';
-import { debugLogger } from '../common/debugLogger';
+import { debugLogger } from '../utils/debugLogger';
 import { SelectorsOwner } from './selectors';
 import { Android, AndroidSocket, AndroidDevice } from './android';
-import { captureStackTrace, type ParsedStackTrace } from '../utils/stackTrace';
 import { Artifact } from './artifact';
 import { EventEmitter } from 'events';
 import { JsonPipe } from './jsonPipe';
@@ -44,6 +42,9 @@ import { APIRequestContext } from './fetch';
 import { LocalUtils } from './localUtils';
 import { Tracing } from './tracing';
 import { findValidator, ValidationError, type ValidatorContext } from '../protocol/validator';
+import { createInstrumentation } from './clientInstrumentation';
+import type { ClientInstrumentation } from './clientInstrumentation';
+import { formatCallLog, rewriteErrorMessage } from '../utils';
 
 class Root extends ChannelOwner<channels.RootChannel> {
   constructor(connection: Connection) {
@@ -64,18 +65,22 @@ export class Connection extends EventEmitter {
   readonly _objects = new Map<string, ChannelOwner>();
   onmessage = (message: object): void => {};
   private _lastId = 0;
-  private _callbacks = new Map<number, { resolve: (a: any) => void, reject: (a: Error) => void, stackTrace: ParsedStackTrace | null, type: string, method: string }>();
+  private _callbacks = new Map<number, { resolve: (a: any) => void, reject: (a: Error) => void, apiName: string | undefined, type: string, method: string }>();
   private _rootObject: Root;
-  private _closedErrorMessage: string | undefined;
+  private _closedError: Error | undefined;
   private _isRemote = false;
   private _localUtils?: LocalUtils;
+  private _rawBuffers = false;
   // Some connections allow resolving in-process dispatchers.
   toImpl: ((client: ChannelOwner) => any) | undefined;
+  private _tracingCount = 0;
+  readonly _instrumentation: ClientInstrumentation;
 
-  constructor(localUtils?: LocalUtils) {
+  constructor(localUtils: LocalUtils | undefined, instrumentation: ClientInstrumentation | undefined) {
     super();
     this._rootObject = new Root(this);
     this._localUtils = localUtils;
+    this._instrumentation = instrumentation || createInstrumentation();
   }
 
   markAsRemote() {
@@ -86,6 +91,14 @@ export class Connection extends EventEmitter {
     return this._isRemote;
   }
 
+  useRawBuffers() {
+    this._rawBuffers = true;
+  }
+
+  rawBuffers() {
+    return this._rawBuffers;
+  }
+
   localUtils(): LocalUtils {
     return this._localUtils!;
   }
@@ -94,51 +107,64 @@ export class Connection extends EventEmitter {
     return await this._rootObject.initialize();
   }
 
-  pendingProtocolCalls(): ParsedStackTrace[] {
-    return Array.from(this._callbacks.values()).map(callback => callback.stackTrace).filter(Boolean) as ParsedStackTrace[];
-  }
-
   getObjectWithKnownName(guid: string): any {
     return this._objects.get(guid)!;
   }
 
-  async sendMessageToServer(object: ChannelOwner, type: string, method: string, params: any, stackTrace: ParsedStackTrace | null): Promise<any> {
-    if (this._closedErrorMessage)
-      throw new Error(this._closedErrorMessage);
+  setIsTracing(isTracing: boolean) {
+    if (isTracing)
+      this._tracingCount++;
+    else
+      this._tracingCount--;
+  }
 
-    const { apiName, frames } = stackTrace || { apiName: '', frames: [] };
+  async sendMessageToServer(object: ChannelOwner, method: string, params: any, apiName: string | undefined, frames: channels.StackFrame[], wallTime: number | undefined): Promise<any> {
+    if (this._closedError)
+      throw this._closedError;
+    if (object._wasCollected)
+      throw new Error('The object has been collected to prevent unbounded heap growth.');
+
     const guid = object._guid;
+    const type = object._type;
     const id = ++this._lastId;
-    const converted = { id, guid, method, params };
-    // Do not include metadata in debug logs to avoid noise.
-    debugLogger.log('channel:command', converted);
-    const metadata: channels.Metadata = { stack: frames, apiName, internal: !apiName };
-    this.onmessage({ ...converted, metadata });
-
-    return await new Promise((resolve, reject) => this._callbacks.set(id, { resolve, reject, stackTrace, type, method }));
+    const message = { id, guid, method, params };
+    if (debugLogger.isEnabled('channel')) {
+      // Do not include metadata in debug logs to avoid noise.
+      debugLogger.log('channel', 'SEND> ' + JSON.stringify(message));
+    }
+    const location = frames[0] ? { file: frames[0].file, line: frames[0].line, column: frames[0].column } : undefined;
+    const metadata: channels.Metadata = { wallTime, apiName, location, internal: !apiName };
+    if (this._tracingCount && frames && type !== 'LocalUtils')
+      this._localUtils?._channel.addStackToTracingNoReply({ callData: { stack: frames, id } }).catch(() => {});
+    this.onmessage({ ...message, metadata });
+    return await new Promise((resolve, reject) => this._callbacks.set(id, { resolve, reject, apiName, type, method }));
   }
 
   dispatch(message: object) {
-    if (this._closedErrorMessage)
+    if (this._closedError)
       return;
 
-    const { id, guid, method, params, result, error } = message as any;
+    const { id, guid, method, params, result, error, log } = message as any;
     if (id) {
-      debugLogger.log('channel:response', message);
+      if (debugLogger.isEnabled('channel'))
+        debugLogger.log('channel', '<RECV ' + JSON.stringify(message));
       const callback = this._callbacks.get(id);
       if (!callback)
         throw new Error(`Cannot find command to respond: ${id}`);
       this._callbacks.delete(id);
       if (error && !result) {
-        callback.reject(parseError(error));
+        const parsedError = parseError(error);
+        rewriteErrorMessage(parsedError, parsedError.message + formatCallLog(log));
+        callback.reject(parsedError);
       } else {
         const validator = findValidator(callback.type, callback.method, 'Result');
-        callback.resolve(validator(result, '', { tChannelImpl: this._tChannelImplFromWire.bind(this), binary: this.isRemote() ? 'fromBase64' : 'buffer' }));
+        callback.resolve(validator(result, '', { tChannelImpl: this._tChannelImplFromWire.bind(this), binary: this._rawBuffers ? 'buffer' : 'fromBase64' }));
       }
       return;
     }
 
-    debugLogger.log('channel:event', message);
+    if (debugLogger.isEnabled('channel'))
+      debugLogger.log('channel', '<EVENT ' + JSON.stringify(message));
     if (method === '__create__') {
       this._createRemoteObject(guid, params.type, params.guid, params.initializer);
       return;
@@ -157,21 +183,18 @@ export class Connection extends EventEmitter {
     }
 
     if (method === '__dispose__') {
-      object._dispose();
+      object._dispose(params.reason);
       return;
     }
 
     const validator = findValidator(object._type, method, 'Event');
-    (object._channel as any).emit(method, validator(params, '', { tChannelImpl: this._tChannelImplFromWire.bind(this), binary: this.isRemote() ? 'fromBase64' : 'buffer' }));
+    (object._channel as any).emit(method, validator(params, '', { tChannelImpl: this._tChannelImplFromWire.bind(this), binary: this._rawBuffers ? 'buffer' : 'fromBase64' }));
   }
 
-  close(errorMessage: string = 'Connection closed') {
-    const stack = captureStackTrace().frameTexts.join('\n');
-    if (stack)
-      errorMessage += '\n    ==== Closed by ====\n' + stack + '\n';
-    this._closedErrorMessage = errorMessage;
+  close(cause?: Error) {
+    this._closedError = new TargetClosedError(cause?.toString());
     for (const callback of this._callbacks.values())
-      callback.reject(new Error(errorMessage));
+      callback.reject(this._closedError);
     this._callbacks.clear();
     this.emit('close');
   }
@@ -194,7 +217,7 @@ export class Connection extends EventEmitter {
       throw new Error(`Cannot find parent object ${parentGuid} to create ${guid}`);
     let result: ChannelOwner<any>;
     const validator = findValidator(type, '', 'Initializer');
-    initializer = validator(initializer, '', { tChannelImpl: this._tChannelImplFromWire.bind(this), binary: this.isRemote() ? 'fromBase64' : 'buffer' });
+    initializer = validator(initializer, '', { tChannelImpl: this._tChannelImplFromWire.bind(this), binary: this._rawBuffers ? 'buffer' : 'fromBase64' });
     switch (type) {
       case 'Android':
         result = new Android(parent, type, guid, initializer);
@@ -225,9 +248,6 @@ export class Connection extends EventEmitter {
         break;
       case 'CDPSession':
         result = new CDPSession(parent, type, guid, initializer);
-        break;
-      case 'ConsoleMessage':
-        result = new ConsoleMessage(parent, type, guid, initializer);
         break;
       case 'Dialog':
         result = new Dialog(parent, type, guid, initializer);

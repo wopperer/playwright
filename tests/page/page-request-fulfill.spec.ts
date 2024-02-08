@@ -18,6 +18,7 @@
 import { test as base, expect } from './pageTest';
 import fs from 'fs';
 import type * as har from '../../packages/trace/src/har';
+import type { Route } from 'playwright-core';
 
 const it = base.extend<{
   // We access test servers at 10.0.2.2 from inside the browser on Android,
@@ -36,7 +37,7 @@ const it = base.extend<{
 
 it('should work', async ({ page, server }) => {
   await page.route('**/*', route => {
-    route.fulfill({
+    void route.fulfill({
       status: 201,
       headers: {
         foo: 'bar'
@@ -53,7 +54,7 @@ it('should work', async ({ page, server }) => {
 
 it('should work with buffer as body', async ({ page, server, browserName, isLinux }) => {
   await page.route('**/*', route => {
-    route.fulfill({
+    void route.fulfill({
       status: 200,
       contentType: 'text/plain',
       body: Buffer.from('Yo, page!')
@@ -66,7 +67,7 @@ it('should work with buffer as body', async ({ page, server, browserName, isLinu
 
 it('should work with status code 422', async ({ page, server }) => {
   await page.route('**/*', route => {
-    route.fulfill({
+    void route.fulfill({
       status: 422,
       body: 'Yo, page!'
     });
@@ -77,14 +78,53 @@ it('should work with status code 422', async ({ page, server }) => {
   expect(await page.evaluate(() => document.body.textContent)).toBe('Yo, page!');
 });
 
+it('should throw exception if status code is not supported', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28490' });
+  let fulfillPromiseCallback;
+  const fulfillPromise = new Promise<Error|undefined>(f => fulfillPromiseCallback = f);
+  await page.route('**/data.json', route => {
+    fulfillPromiseCallback(route.fulfill({
+      status: 430,
+      body: 'Yo, page!'
+    }).catch(e => e));
+  });
+  await page.goto(server.EMPTY_PAGE);
+  page.evaluate(url => fetch(url), server.PREFIX + '/data.json').catch(() => {});
+  const error = await fulfillPromise;
+  if (browserName === 'chromium') {
+    expect(error).toBeTruthy();
+    expect(error.message).toContain(' Invalid http status code or phrase');
+  } else {
+    expect(error).toBe(undefined);
+  }
+});
+
+it('should not throw if request was cancelled by the page', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28490' });
+  let interceptCallback;
+  const interceptPromise = new Promise<Route>(f => interceptCallback = f);
+  await page.route('**/data.json', route => interceptCallback(route));
+  await page.goto(server.EMPTY_PAGE);
+  page.evaluate(url => {
+    globalThis.controller = new AbortController();
+    return fetch(url, { signal: globalThis.controller.signal });
+  }, server.PREFIX + '/data.json').catch(() => {});
+  const route = await interceptPromise;
+  const failurePromise = page.waitForEvent('requestfailed');
+  await page.evaluate(() => globalThis.controller.abort());
+  const cancelledRequest = await failurePromise;
+  expect(cancelledRequest.failure()).toBeTruthy();
+  expect(cancelledRequest.failure().errorText).toMatch(/cancelled|aborted/i);
+  await route.fulfill({ status: 200 }); // Should not throw.
+});
+
 it('should allow mocking binary responses', async ({ page, server, browserName, headless, asset, isAndroid, mode }) => {
-  it.skip(mode === 'service');
   it.skip(browserName === 'firefox' && !headless, 'Firefox headed produces a different image.');
   it.skip(isAndroid);
 
   await page.route('**/*', route => {
     const imageBuffer = fs.readFileSync(asset('pptr.png'));
-    route.fulfill({
+    void route.fulfill({
       contentType: 'image/png',
       body: imageBuffer
     });
@@ -100,13 +140,12 @@ it('should allow mocking binary responses', async ({ page, server, browserName, 
 });
 
 it('should allow mocking svg with charset', async ({ page, server, browserName, headless, isAndroid, isElectron, mode }) => {
-  it.skip(mode === 'service');
   it.skip(browserName === 'firefox' && !headless, 'Firefox headed produces a different image.');
   it.skip(isAndroid);
   it.skip(isElectron, 'Protocol error (Storage.getCookies): Browser context management is not supported');
 
   await page.route('**/*', route => {
-    route.fulfill({
+    void route.fulfill({
       contentType: 'image/svg+xml ; charset=utf-8',
       body: '<svg width="50" height="50" version="1.1" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="10" width="30" height="30" stroke="black" fill="transparent" stroke-width="5"/></svg>'
     });
@@ -122,7 +161,7 @@ it('should allow mocking svg with charset', async ({ page, server, browserName, 
 });
 
 it('should work with file path', async ({ page, server, asset, mode, isAndroid }) => {
-  it.skip(mode === 'service' || isAndroid);
+  it.skip(isAndroid);
 
   await page.route('**/*', route => route.fulfill({ contentType: 'shouldBeIgnored', path: asset('pptr.png') }));
   await page.evaluate(PREFIX => {
@@ -137,7 +176,7 @@ it('should work with file path', async ({ page, server, asset, mode, isAndroid }
 
 it('should stringify intercepted request response headers', async ({ page, server }) => {
   await page.route('**/*', route => {
-    route.fulfill({
+    void route.fulfill({
       status: 200,
       headers: {
         'foo': 'true'
@@ -172,7 +211,7 @@ it('should not modify the headers sent to the server', async ({ page, server }) 
   expect(text).toBe('done');
 
   await page.route(server.CROSS_PROCESS_PREFIX + '/something', (route, request) => {
-    route.continue({
+    void route.continue({
       headers: {
         ...request.headers()
       }
@@ -196,7 +235,7 @@ it('should include the origin header', async ({ page, server, isAndroid }) => {
   let interceptedRequest;
   await page.route(server.CROSS_PROCESS_PREFIX + '/something', (route, request) => {
     interceptedRequest = request;
-    route.fulfill({
+    void route.fulfill({
       headers: {
         'Access-Control-Allow-Origin': '*',
       },
@@ -218,7 +257,7 @@ it('should fulfill with global fetch result', async ({ playwright, page, server,
   await page.route('**/*', async route => {
     const request = await playwright.request.newContext();
     const response = await request.get(rewriteAndroidLoopbackURL(server.PREFIX + '/simple.json'));
-    route.fulfill({ response });
+    void route.fulfill({ response });
   });
   const response = await page.goto(server.EMPTY_PAGE);
   expect(response.status()).toBe(200);
@@ -229,7 +268,7 @@ it('should fulfill with fetch result', async ({ page, server, isElectron, rewrit
   it.fixme(isElectron, 'error: Browser context management is not supported.');
   await page.route('**/*', async route => {
     const response = await page.request.get(rewriteAndroidLoopbackURL(server.PREFIX + '/simple.json'));
-    route.fulfill({ response });
+    void route.fulfill({ response });
   });
   const response = await page.goto(server.EMPTY_PAGE);
   expect(response.status()).toBe(200);
@@ -240,7 +279,7 @@ it('should fulfill with fetch result and overrides', async ({ page, server, isEl
   it.fixme(isElectron, 'error: Browser context management is not supported.');
   await page.route('**/*', async route => {
     const response = await page.request.get(rewriteAndroidLoopbackURL(server.PREFIX + '/simple.json'));
-    route.fulfill({
+    void route.fulfill({
       response,
       status: 201,
       headers: {
@@ -260,7 +299,7 @@ it('should fetch original request and fulfill', async ({ page, server, isElectro
   it.skip(isAndroid, 'The internal Android localhost (10.0.0.2) != the localhost on the host');
   await page.route('**/*', async route => {
     const response = await page.request.fetch(route.request());
-    route.fulfill({
+    void route.fulfill({
       response,
     });
   });
@@ -273,7 +312,7 @@ it('should fulfill with multiple set-cookie', async ({ page, server, isElectron 
   it.fixme(isElectron, 'Electron 14+ is required');
   const cookies = ['a=b', 'c=d'];
   await page.route('**/empty.html', async route => {
-    route.fulfill({
+    void route.fulfill({
       status: 200,
       headers: {
         'X-Header-1': 'v1',
@@ -299,7 +338,7 @@ it('should fulfill with fetch response that has multiple set-cookie', async ({ p
   await page.route('**/empty.html', async route => {
     const request = await playwright.request.newContext();
     const response = await request.fetch(route.request());
-    route.fulfill({ response });
+    void route.fulfill({ response });
   });
   await page.goto(server.EMPTY_PAGE);
   const cookie = await page.evaluate(() => document.cookie);
@@ -310,7 +349,7 @@ it('headerValue should return set-cookie from intercepted response', async ({ pa
   it.fail(browserName === 'chromium', 'Set-Cookie is missing in response after interception');
   it.skip(browserName === 'webkit', 'Set-Cookie with \n in intercepted response does not pass validation in WebCore, see also https://github.com/microsoft/playwright/pull/9273');
   await page.route('**/empty.html', async route => {
-    route.fulfill({
+    void route.fulfill({
       status: 200,
       headers: {
         'Set-Cookie': 'a=b',
@@ -359,7 +398,7 @@ it('should fulfill preload link requests', async ({ page, server, browserName })
   let intercepted = false;
   await page.route('**/one-style.css', route => {
     intercepted = true;
-    route.fulfill({
+    void route.fulfill({
       status: 200,
       headers: {
         'content-type': 'text/css; charset=utf-8',
@@ -381,8 +420,9 @@ it('should fulfill preload link requests', async ({ page, server, browserName })
 });
 
 it('should fulfill json', async ({ page, server }) => {
-  await page.route('**/*', route => {
-    route.fulfill({
+  await page.goto(server.EMPTY_PAGE);
+  await page.route('**/data.json', route => {
+    void route.fulfill({
       status: 201,
       headers: {
         foo: 'bar'
@@ -390,8 +430,11 @@ it('should fulfill json', async ({ page, server }) => {
       json: { bar: 'baz' },
     });
   });
-  const response = await page.goto(server.EMPTY_PAGE);
+  const [response, body] = await Promise.all([
+    page.waitForResponse('**/*'),
+    page.evaluate(() => fetch('./data.json').then(r => r.text()))
+  ]);
   expect(response.status()).toBe(201);
   expect(response.headers()['content-type']).toBe('application/json');
-  expect(await page.evaluate(() => document.body.textContent)).toBe(JSON.stringify({ bar: 'baz' }));
+  expect(body).toBe(JSON.stringify({ bar: 'baz' }));
 });

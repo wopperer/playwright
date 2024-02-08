@@ -2,15 +2,57 @@
 id: network
 title: "Network"
 ---
+## Introduction
 
-Playwright provides APIs to **monitor** and **modify** network traffic, both HTTP and HTTPS. Any requests that a page does, including [XHRs](https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest) and
+Playwright provides APIs to **monitor** and **modify** browser network traffic, both HTTP and HTTPS. Any requests that a page does, including [XHRs](https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest) and
 [fetch](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API) requests, can be tracked, modified and handled.
+
+
+## Mock APIs
+
+Check out our [API mocking guide](./mock.md) to learn more on how to 
+- mock API requests and never hit the API
+- perform the API request and modify the response
+- use HAR files to mock network requests.
+
+## Network mocking
+* langs: js
+
+You don't have to configure anything to mock network requests. Just define a custom [Route] that mocks network for a browser context.
+
+```js title="example.spec.ts"
+import { test, expect } from '@playwright/test';
+
+test.beforeEach(async ({ context }) => {
+  // Block any css requests for each test in this file.
+  await context.route(/.css$/, route => route.abort());
+});
+
+test('loads page without css', async ({ page }) => {
+  await page.goto('https://playwright.dev');
+  // ... test goes here
+});
+```
+
+Alternatively, you can use [`method: Page.route`] to mock network in a single page.
+
+```js title="example.spec.ts"
+import { test, expect } from '@playwright/test';
+
+test('loads page without images', async ({ page }) => {
+  // Block png and jpeg images.
+  await page.route(/(png|jpeg)$/, route => route.abort());
+
+  await page.goto('https://playwright.dev');
+  // ... test goes here
+});
+```
 
 ## HTTP Authentication
 
 Perform HTTP Authentication.
 
-```js tab=js-ts
+```js tab=js-test title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
   use: {
@@ -78,7 +120,7 @@ bypass proxy for.
 
 Here is an example of a global proxy:
 
-```js tab=js-ts
+```js tab=js-test title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
   use: {
@@ -139,7 +181,7 @@ await using var browser = await BrowserType.LaunchAsync(new()
 
 When specifying proxy for each context individually, **Chromium on Windows** needs a hint that proxy will be set. This is done via passing a non-empty proxy server to the browser itself. Here is an example of a context-specific proxy:
 
-```js tab=js-ts
+```js tab=js-test title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
   use: {
@@ -161,7 +203,7 @@ const browser = await chromium.launch({
 });
 const context = await browser.newContext({
   proxy: { server: 'http://myproxy.com:3128' }
-})
+});
 ```
 
 ```java
@@ -191,9 +233,9 @@ await using var browser = await BrowserType.LaunchAsync(new()
     // Browser proxy option is required for Chromium on Windows.
     Proxy = proxy
 });
-using var context = await Browser.NewContextAsync(new()
+await using var context = await browser.NewContextAsync(new()
 {
-    Proxy = new Proxy { Server = "http://myproxy.com:3128" })
+    Proxy = new Proxy { Server = "http://myproxy.com:3128" },
 });
 ```
 
@@ -229,9 +271,9 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     chromium = playwright.chromium
     browser = await chromium.launch()
     page = await browser.new_page()
@@ -248,9 +290,9 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     chromium = playwright.chromium
     browser = chromium.launch()
     page = browser.new_page()
@@ -504,7 +546,7 @@ page.route("**/*", lambda route: route.continue_(method="POST"))
 await page.RouteAsync("**/*", async route => {
     var headers = new Dictionary<string, string>(route.Request.Headers.ToDictionary(x => x.Key, x => x.Value));
     headers.Remove("X-Secret");
-    await route.ContinueAsync(new RouteContinueOptions { Headers = headers });
+    await route.ContinueAsync(new() { Headers = headers });
 });
 
 // Continue requests as POST.
@@ -522,8 +564,7 @@ await page.route('**/*.{png,jpg,jpeg}', route => route.abort());
 
 // Abort based on the request type
 await page.route('**/*', route => {
-  return route.request().resourceType() === 'image' ?
-      route.abort() : route.continue();
+  return route.request().resourceType() === 'image' ? route.abort() : route.continue();
 });
 ```
 
@@ -670,132 +711,6 @@ await Page.RouteAsync("**/title.html", async route =>
     });
 });
 ```
-
-## Record and replay requests
-
-You can record network activity as an HTTP Archive file (HAR). Later on, this archive can be used to mock responses to the network requests. You'll need to:
-1. Record a HAR file.
-1. Commit the HAR file alongside the tests.
-1. Route requests using the saved HAR files in the tests.
-
-### Recording HAR with CLI
-
-Open the browser with [Playwright CLI](./cli.md) and pass `--save-har` option to produce a HAR file. Optionally, use `--save-har-glob` to only save requests you are interested in, for example API endpoints. If the har file name ends with `.zip`, artifacts are written as separate files and are all compressed into a single `zip`.
-
-```bash js
-# Save API requests from example.com as "example.har" archive.
-npx playwright open --save-har=example.har --save-har-glob="**/api/**" https://example.com
-```
-
-```bash java
-# Save API requests from example.com as "example.har" archive.
-mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="open --save-har=example.har --save-har-glob='**/api/**' https://example.com"
-```
-
-```bash python
-# Save API requests from example.com as "example.har" archive.
-playwright open --save-har=example.har --save-har-glob="**/api/**" https://example.coms
-```
-
-```bash csharp
-# Save API requests from example.com as "example.har" archive.
-pwsh bin/Debug/netX/playwright.ps1 open --save-har=example.har --save-har-glob="**/api/**" https://example.com
-```
-
-### Recording HAR with a script
-
-Alternatively, instead of using the CLI, you can record HAR programmatically. Pass [`option: har`] option when creating a [BrowserContext] with [`method: Browser.newContext`] to create an archive. If the har file name ends with `.zip`, artifacts are written as separate files and are all compressed into a single `zip`.
-
-```js
-const context = await browser.newContext({
-  recordHar: { path: 'example.har', urlFilter: '**/api/**' }
-});
-
-// ... Perform actions ...
-
-// Close context to ensure HAR is saved to disk.
-await context.close();
-```
-
-```java
-BrowserContext context = browser.newContext(new Browser.NewContextOptions()
-    .setRecordHarPath(Paths.get("example.har"))
-    .setRecordHarUrlFilter("**/api/**"));
-
-// ... Perform actions ...
-
-// Close context to ensure HAR is saved to disk.
-context.close();
-```
-
-```python async
-context = await browser.new_context(record_har_path="example.har", record_har_url_filter="**/api/**")
-
-# ... Perform actions ...
-
-# Close context to ensure HAR is saved to disk.
-await context.close()
-```
-
-```python sync
-context = browser.new_context(record_har_path="example.har", record_har_url_filter="**/api/**")
-
-# ... Perform actions ...
-
-# Close context to ensure HAR is saved to disk.
-context.close()
-```
-
-```csharp
-var context = await browser.NewContextAsync(new() {
-    RecordHarPath = "example.har",
-    RecordHarUrlFilter = "**/api/**",
-});
-
-// ... Perform actions ...
-
-// Close context to ensure HAR is saved to disk.
-await context.CloseAsync();
-```
-
-### Replaying from HAR
-
-Use [`method: Page.routeFromHAR`] or [`method: BrowserContext.routeFromHAR`] to serve matching responses from the [HAR](http://www.softwareishard.com/blog/har-12-spec/) file.
-
-```js
-// Replay API requests from HAR.
-// Either use a matching response from the HAR,
-// or abort the request if nothing matches.
-await page.routeFromHAR('example.har');
-```
-
-```java
-// Either use a matching response from the HAR,
-// or abort the request if nothing matches.
-page.routeFromHAR(Paths.get("example.har"));
-```
-
-```python async
-# Either use a matching response from the HAR,
-# or abort the request if nothing matches.
-await page.route_from_har("example.har")
-```
-
-```python sync
-# Either use a matching response from the HAR,
-# or abort the request if nothing matches.
-page.route_from_har("example.har")
-```
-
-```csharp
-// Either use a matching response from the HAR,
-// or abort the request if nothing matches.
-await context.RouteFromHARAsync("example.har");
-```
-
-HAR replay matches URL and HTTP method strictly. For POST requests, it also matches POST payloads strictly. If multiple recordings match a request, the one with the most matching headers is picked. An entry resulting in a redirect will be followed automatically.
-
-Similar to when recording, if given HAR file name ends with `.zip`, it is considered an archive containing the HAR file along with network payloads stored as separate entries. You can also extract this archive, edit payloads or HAR log manually and point to the extracted har file. All the payloads will be resolved relative to the extracted har file on the file system.
 
 ## WebSockets
 

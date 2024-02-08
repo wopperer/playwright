@@ -36,15 +36,15 @@ export const mime = mimeLibrary;
 import minimatchLibrary from 'minimatch';
 export const minimatch = minimatchLibrary;
 
+import openLibrary from 'open';
+export const open = openLibrary;
+
 export { PNG } from 'pngjs';
 
 export { program } from 'commander';
 
 import progressLibrary from 'progress';
 export const progress = progressLibrary;
-
-import rimrafLibrary from 'rimraf';
-export const rimraf = rimrafLibrary;
 
 export { SocksProxyAgent } from 'socks-proxy-agent';
 

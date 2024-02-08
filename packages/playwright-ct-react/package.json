@@ -1,11 +1,14 @@
 {
   "name": "@playwright/experimental-ct-react",
-  "version": "1.31.0-next",
+  "version": "1.42.0-next",
   "description": "Playwright Component Testing for React",
-  "repository": "github:Microsoft/playwright",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/microsoft/playwright.git"
+  },
   "homepage": "https://playwright.dev",
   "engines": {
-    "node": ">=14"
+    "node": ">=16"
   },
   "author": {
     "name": "Microsoft Corporation"
@@ -26,8 +29,11 @@
     }
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^3.0.0",
-    "@playwright/test": "1.31.0-next",
-    "vite": "^4.0.3"
+    "@playwright/experimental-ct-core": "1.42.0-next",
+    "@vitejs/plugin-react": "^4.2.1"
+  },
+  "bin": {
+    "playwright": "cli.js",
+    "pw-react": "cli.js"
   }
 }

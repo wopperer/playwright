@@ -19,6 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import type { Download } from 'playwright-core';
+import { kTargetClosedErrorMessage } from '../config/errors';
 
 it.describe('download event', () => {
   it.skip(({ mode }) => mode !== 'default', 'download.path() is not available in remote mode');
@@ -51,7 +52,6 @@ it.describe('download event', () => {
   });
 
   it('should report download when navigation turns into download @smoke', async ({ browser, server, browserName, mode }) => {
-    it.skip(mode === 'docker', 'local paths do not work remote connection');
     const page = await browser.newPage();
     const [download, responseOrError] = await Promise.all([
       page.waitForEvent('download'),
@@ -116,7 +116,7 @@ it.describe('download event', () => {
     expect(download.suggestedFilename()).toBe(`file.txt`);
     await download.path().catch(e => error = e);
     expect(await download.failure()).toContain('acceptDownloads');
-    expect(error.message).toContain('acceptDownloads: true');
+    expect(error!.message).toContain('acceptDownloads: true');
     await page.close();
   });
 
@@ -280,7 +280,7 @@ it.describe('download event', () => {
     const page = await browser.newPage();
     const onDownloadPath = new Promise<string>(res => {
       page.on('download', dl => {
-        dl.path().then(res);
+        void dl.path().then(res);
       });
     });
     await page.setContent(`<a href="${server.PREFIX}/download">download</a>`);
@@ -294,7 +294,7 @@ it.describe('download event', () => {
     const page = await browser.newPage();
     const onDownloadPath = new Promise<string>(res => {
       page.on('download', dl => {
-        dl.path().then(res);
+        void dl.path().then(res);
       });
     });
     await page.goto(server.PREFIX + '/download-blob.html');
@@ -422,12 +422,12 @@ it.describe('download event', () => {
       // probably because of http -> https link.
       page.click('a', { modifiers: ['Alt'] })
     ]);
-    const [downloadPath, saveError] = await Promise.all([
-      download.path(),
+    const [downloadError, saveError] = await Promise.all([
+      download.path().catch(e => e),
       download.saveAs(testInfo.outputPath('download.txt')).catch(e => e),
       page.context().close(),
     ]);
-    expect(downloadPath).toBe(null);
+    expect(downloadError.message).toBe('download.path: canceled');
     expect([
       'download.saveAs: File not found on disk. Check download.failure() for details.',
       'download.saveAs: canceled',
@@ -452,17 +452,20 @@ it.describe('download event', () => {
       page.waitForEvent('download'),
       page.click('a')
     ]);
-    const [downloadPath, saveError] = await Promise.all([
-      download.path(),
+    const [downloadError, saveError] = await Promise.all([
+      download.path().catch(e => e),
       download.saveAs(testInfo.outputPath('download.txt')).catch(e => e),
       page.context().close(),
     ]);
-    expect(downloadPath).toBe(null);
     // The exact error message is racy, because sometimes browser is fast enough
     // to cancel the download.
     expect([
+      'download.path: canceled',
+      'download.path: ' + kTargetClosedErrorMessage,
+    ]).toContain(downloadError.message);
+    expect([
       'download.saveAs: canceled',
-      'download.saveAs: File deleted upon browser context closure.',
+      'download.saveAs: ' + kTargetClosedErrorMessage,
     ]).toContain(saveError.message);
   });
 
@@ -483,13 +486,13 @@ it.describe('download event', () => {
       page.waitForEvent('download'),
       page.click('a')
     ]);
-    const [downloadPath, saveError] = await Promise.all([
-      download.path(),
+    const [downloadError, saveError] = await Promise.all([
+      download.path().catch(e => e),
       download.saveAs(testInfo.outputPath('download.txt')).catch(e => e),
       (browser as any)._channel.killForTests(),
     ]);
-    expect(downloadPath).toBe(null);
-    expect(saveError.message).toContain('File deleted upon browser context closure.');
+    expect(downloadError.message).toBe('download.path: ' + kTargetClosedErrorMessage);
+    expect(saveError.message).toContain('download.saveAs: ' + kTargetClosedErrorMessage);
     await browser.close();
   });
 
@@ -513,10 +516,10 @@ it.describe('download event', () => {
 
     const stream = await download.createReadStream();
     const data = await new Promise<Buffer>((fulfill, reject) => {
-      const bufs = [];
-      stream.on('data', d => bufs.push(d));
+      const buffs: Buffer[] = [];
+      stream.on('data', d => buffs.push(d));
       stream.on('error', reject);
-      stream.on('end', () => fulfill(Buffer.concat(bufs)));
+      stream.on('end', () => fulfill(Buffer.concat(buffs)));
     });
     expect(data.byteLength).toBe(content.byteLength);
     expect(data.equals(content)).toBe(true);
@@ -586,7 +589,7 @@ it.describe('download event', () => {
       page.waitForEvent('download'),
       page.frame({
         url: server.PREFIX + '/3'
-      }).click('text=download')
+      })!.click('text=download')
     ]);
     const userPath = testInfo.outputPath('download.txt');
     await download.saveAs(userPath);
@@ -636,7 +639,7 @@ it('should be able to download a inline PDF file via response interception', asy
 });
 
 it('should be able to download a inline PDF file via navigation', async ({ browser, server, asset, browserName, headless }) => {
-  it.fixme((!headless && browserName === 'chromium'));
+  it.fixme(((!headless || !!process.env.PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW) && browserName === 'chromium'));
   const page = await browser.newPage();
   await page.goto(server.EMPTY_PAGE);
   await page.setContent(`
@@ -663,7 +666,7 @@ it('should save to user-specified path', async ({ browser, server, mode }, testI
     page.waitForEvent('download'),
     page.click('a')
   ]);
-  if (mode !== 'default') {
+  if (mode.startsWith('service')) {
     const error = await download.path().catch(e => e);
     expect(error.message).toContain('Path is not available when connecting remotely. Use saveAs() to save a local copy.');
   }
@@ -706,14 +709,38 @@ it('should convert navigation to a resource with unsupported mime type into down
   await page.close();
 });
 
+it('should download links with data url', async ({ page }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21892' });
+  await page.setContent('<a download="SomeFile.txt" href="data:text/plain;charset=utf8;,hello world">Download!</a>');
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByText('Download').click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('SomeFile.txt');
+});
+
+it('should download successfully when routing', async ({ browser, server }) => {
+  const page = await browser.newPage();
+  await page.context().route('**/*', route => route.continue());
+  await page.goto(server.PREFIX + '/empty.html');
+  await page.setContent(`<a href="${server.PREFIX}/chromium-linux.zip" download="foo.zip">download</a>`);
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.click('a')
+  ]);
+  expect(download.suggestedFilename()).toBe('foo.zip');
+  expect(download.url()).toBe(`${server.PREFIX}/chromium-linux.zip`);
+  expect(await download.failure()).toBe(null);
+  await page.close();
+});
+
 async function assertDownloadToPDF(download: Download, filePath: string) {
   expect(download.suggestedFilename()).toBe(path.basename(filePath));
   const stream = await download.createReadStream();
   const data = await new Promise<Buffer>((fulfill, reject) => {
-    const bufs = [];
-    stream.on('data', d => bufs.push(d));
+    const buffs: Buffer[] = [];
+    stream.on('data', d => buffs.push(d));
     stream.on('error', reject);
-    stream.on('end', () => fulfill(Buffer.concat(bufs)));
+    stream.on('end', () => fulfill(Buffer.concat(buffs)));
   });
   expect(download.url().endsWith('/' + path.basename(filePath))).toBeTruthy();
   const expectedPrefix = '%PDF';
@@ -722,7 +749,7 @@ async function assertDownloadToPDF(download: Download, filePath: string) {
   assertBuffer(data, fs.readFileSync(filePath));
 }
 
-async function assertBuffer(expected: Buffer, actual: Buffer) {
+function assertBuffer(expected: Buffer, actual: Buffer) {
   expect(expected.byteLength).toBe(actual.byteLength);
   for (let i = 0; i < expected.byteLength; i++)
     expect(expected[i]).toBe(actual[i]);

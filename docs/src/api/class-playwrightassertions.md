@@ -1,4 +1,5 @@
 # class: PlaywrightAssertions
+* langs: js, java, csharp
 * since: v1.17
 
 Playwright gives you Web-First Assertions with convenience methods for creating assertions that will wait and retry until the expected condition is met.
@@ -10,7 +11,7 @@ import { test, expect } from '@playwright/test';
 
 test('status becomes submitted', async ({ page }) => {
   // ...
-  await page.locator('#submit-button').click()
+  await page.locator('#submit-button').click();
   await expect(page.locator('.status')).toHaveText('Submitted');
 });
 ```
@@ -96,6 +97,21 @@ PlaywrightAssertions.assertThat(response).isOK();
 
 [APIResponse] object to use for assertions.
 
+## method: PlaywrightAssertions.expectGeneric
+* since: v1.9
+* langs: js
+  - alias-js: expect
+- returns: <[GenericAssertions]>
+
+Creates a [GenericAssertions] object for the given value.
+
+### param: PlaywrightAssertions.expectGeneric.value
+* since: v1.9
+* langs: js
+- `value` <[any]>
+
+Value that will be asserted.
+
 ## method: PlaywrightAssertions.expectLocator
 * since: v1.18
 * langs:
@@ -141,7 +157,7 @@ PlaywrightAssertions.assertThat(page).hasTitle("News");
 ```
 
 ```csharp
-await Expect(page).ToHaveTitleAsync("News");
+await Expect(Page).ToHaveTitleAsync("News");
 ```
 
 ### param: PlaywrightAssertions.expectPage.page

@@ -1,7 +1,6 @@
 "use strict";
 
 const { Helper } = ChromeUtils.import('chrome://juggler/content/Helper.js');
-const { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const { initialize } = ChromeUtils.import('chrome://juggler/content/content/main.js');
 
 const Ci = Components.interfaces;
@@ -17,8 +16,18 @@ class JugglerFrameChild extends JSWindowActorChild {
   }
 
   handleEvent(aEvent) {
+    if (this._agents && aEvent.type === 'DOMWillOpenModalDialog') {
+      this._agents.channel.pause();
+      return;
+    }
+    if (this._agents && aEvent.type === 'DOMModalDialogClosed') {
+      this._agents.channel.resumeSoon();
+      return;
+    }
     if (this._agents && aEvent.target === this.document)
       this._agents.pageAgent.onWindowEvent(aEvent);
+    if (this._agents && aEvent.target === this.document)
+      this._agents.frameTree.onWindowEvent(aEvent);
   }
 
   actorCreated() {

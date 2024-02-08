@@ -42,8 +42,10 @@ import { RawKeyboardImpl, RawMouseImpl, RawTouchscreenImpl } from './wkInput';
 import { WKInterceptableRequest, WKRouteImpl } from './wkInterceptableRequest';
 import { WKProvisionalPage } from './wkProvisionalPage';
 import { WKWorkers } from './wkWorkers';
-import { debugLogger } from '../../common/debugLogger';
+import { debugLogger } from '../../utils/debugLogger';
 import { ManualPromise } from '../../utils/manualPromise';
+import { BrowserContext } from '../browserContext';
+import { TargetClosedError } from '../errors';
 
 const UTILITY_WORLD_NAME = '__playwright_utility_world__';
 
@@ -58,9 +60,9 @@ export class WKPage implements PageDelegate {
   private readonly _pageProxySession: WKSession;
   readonly _opener: WKPage | null;
   private readonly _requestIdToRequest = new Map<string, WKInterceptableRequest>();
+  private readonly _requestIdToRequestWillBeSentEvent = new Map<string, Protocol.Network.requestWillBeSentPayload>();
   private readonly _workers: WKWorkers;
   private readonly _contextIdToContext: Map<number, dom.FrameExecutionContext>;
-  private _mainFrameContextId?: number;
   private _sessionListeners: RegisteredListener[] = [];
   private _eventListeners: RegisteredListener[];
   readonly _browserContext: WKBrowserContext;
@@ -183,6 +185,7 @@ export class WKPage implements PageDelegate {
     ];
     if (this._page.needsRequestInterception()) {
       promises.push(session.send('Network.setInterceptionEnabled', { enabled: true }));
+      promises.push(session.send('Network.setResourceCachingDisabled', { disabled: true }));
       promises.push(session.send('Network.addInterception', { url: '.*', stage: 'request', isRegex: true }));
     }
     if (this._page._browserContext.isSettingStorageState()) {
@@ -201,7 +204,7 @@ export class WKPage implements PageDelegate {
     const bootstrapScript = this._calculateBootstrapScript();
     if (bootstrapScript.length)
       promises.push(session.send('Page.setBootstrapScript', { source: bootstrapScript }));
-    this._page.frames().map(frame => frame.evaluateExpression(bootstrapScript, false, undefined).catch(e => {}));
+    this._page.frames().map(frame => frame.evaluateExpression(bootstrapScript).catch(e => {}));
     if (contextOptions.bypassCSP)
       promises.push(session.send('Page.setBypassCSP', { enabled: true }));
     const emulatedSize = this._page.emulatedSize();
@@ -246,11 +249,11 @@ export class WKPage implements PageDelegate {
   private _onTargetDestroyed(event: Protocol.Target.targetDestroyedPayload) {
     const { targetId, crashed } = event;
     if (this._provisionalPage && this._provisionalPage._session.sessionId === targetId) {
-      this._provisionalPage._session.dispose(false);
+      this._provisionalPage._session.dispose();
       this._provisionalPage.dispose();
       this._provisionalPage = null;
     } else if (this._session.sessionId === targetId) {
-      this._session.dispose(false);
+      this._session.dispose();
       eventsHelper.removeEventListeners(this._sessionListeners);
       if (crashed) {
         this._session.markAsCrashed();
@@ -260,22 +263,18 @@ export class WKPage implements PageDelegate {
   }
 
   didClose() {
-    this._page._didClose();
-  }
-
-  dispose(disconnected: boolean) {
-    this._pageProxySession.dispose(disconnected);
+    this._pageProxySession.dispose();
     eventsHelper.removeEventListeners(this._sessionListeners);
     eventsHelper.removeEventListeners(this._eventListeners);
     if (this._session)
-      this._session.dispose(disconnected);
+      this._session.dispose();
     if (this._provisionalPage) {
-      this._provisionalPage._session.dispose(disconnected);
+      this._provisionalPage._session.dispose();
       this._provisionalPage.dispose();
       this._provisionalPage = null;
     }
-    this._page._didDisconnect();
-    this._firstNonInitialNavigationCommittedReject(new Error('Page closed'));
+    this._firstNonInitialNavigationCommittedReject(new TargetClosedError());
+    this._page._didClose();
   }
 
   dispatchMessageToSession(message: any) {
@@ -306,7 +305,7 @@ export class WKPage implements PageDelegate {
 
   private async _onTargetCreated(event: Protocol.Target.targetCreatedPayload) {
     const { targetInfo } = event;
-    const session = new WKSession(this._pageProxySession.connection, targetInfo.targetId, `Target closed`, (message: any) => {
+    const session = new WKSession(this._pageProxySession.connection, targetInfo.targetId, (message: any) => {
       this._pageProxySession.send('Target.sendMessageToTarget', {
         message: JSON.stringify(message), targetId: targetInfo.targetId
       }).catch(e => {
@@ -390,9 +389,9 @@ export class WKPage implements PageDelegate {
       eventsHelper.addEventListener(this._session, 'Page.fileChooserOpened', event => this._onFileChooserOpened(event)),
       eventsHelper.addEventListener(this._session, 'Network.requestWillBeSent', e => this._onRequestWillBeSent(this._session, e)),
       eventsHelper.addEventListener(this._session, 'Network.requestIntercepted', e => this._onRequestIntercepted(this._session, e)),
-      eventsHelper.addEventListener(this._session, 'Network.responseReceived', e => this._onResponseReceived(e)),
+      eventsHelper.addEventListener(this._session, 'Network.responseReceived', e => this._onResponseReceived(this._session, e)),
       eventsHelper.addEventListener(this._session, 'Network.loadingFinished', e => this._onLoadingFinished(e)),
-      eventsHelper.addEventListener(this._session, 'Network.loadingFailed', e => this._onLoadingFailed(e)),
+      eventsHelper.addEventListener(this._session, 'Network.loadingFailed', e => this._onLoadingFailed(this._session, e)),
       eventsHelper.addEventListener(this._session, 'Network.webSocketCreated', e => this._page._frameManager.onWebSocketCreated(e.requestId, e.url)),
       eventsHelper.addEventListener(this._session, 'Network.webSocketWillSendHandshakeRequest', e => this._page._frameManager.onWebSocketRequest(e.requestId)),
       eventsHelper.addEventListener(this._session, 'Network.webSocketHandshakeResponseReceived', e => this._page._frameManager.onWebSocketResponse(e.requestId, e.response.status, e.response.statusText)),
@@ -511,8 +510,6 @@ export class WKPage implements PageDelegate {
     (context as any)[contextDelegateSymbol] = delegate;
     if (worldName)
       frame._contextCreated(worldName, context);
-    if (contextPayload.type === 'normal' && frame === this._page.mainFrame())
-      this._mainFrameContextId = contextPayload.id;
     this._contextIdToContext.set(contextPayload.id, context);
   }
 
@@ -527,7 +524,7 @@ export class WKPage implements PageDelegate {
 
   async navigateFrame(frame: frames.Frame, url: string, referrer: string | undefined): Promise<frames.GotoResult> {
     if (this._pageProxySession.isDisposed())
-      throw new Error('Target closed');
+      throw new TargetClosedError();
     const pageProxyId = this._pageProxySession.sessionId;
     const result = await this._pageProxySession.connection.browserSession.send('Playwright.navigate', { url, pageProxyId, frameId: frame._id, referrer });
     return { newDocumentId: result.loaderId };
@@ -549,11 +546,12 @@ export class WKPage implements PageDelegate {
         stack = '';
       }
 
+      this._lastConsoleMessage = null;
       const error = new Error(message);
       error.stack = stack;
       error.name = name;
 
-      this._page.firePageError(error);
+      this._page.emitOnContextOnceInitialized(BrowserContext.Events.PageError, error, this._page);
       return;
     }
 
@@ -570,7 +568,8 @@ export class WKPage implements PageDelegate {
         const objectId = JSON.parse(p.objectId);
         context = this._contextIdToContext.get(objectId.injectedScriptId);
       } else {
-        context = this._contextIdToContext.get(this._mainFrameContextId!);
+        // Pick any context if the parameter is a value.
+        context = [...this._contextIdToContext.values()].find(c => c.frame === this._page.mainFrame());
       }
       if (!context)
         return;
@@ -606,7 +605,7 @@ export class WKPage implements PageDelegate {
   }
 
   _onDialog(event: Protocol.Dialog.javascriptDialogOpeningPayload) {
-    this._page.emit(Page.Events.Dialog, new dialog.Dialog(
+    this._page.emitOnContext(BrowserContext.Events.Dialog, new dialog.Dialog(
         this._page,
         event.type as dialog.DialogType,
         event.message,
@@ -678,6 +677,7 @@ export class WKPage implements PageDelegate {
   }
 
   async updateEmulatedViewportSize(): Promise<void> {
+    this._browserContext._validateEmulatedViewport(this._page.viewportSize());
     await this._updateViewport();
   }
 
@@ -722,6 +722,7 @@ export class WKPage implements PageDelegate {
     const enabled = this._page.needsRequestInterception();
     await Promise.all([
       this._updateState('Network.setInterceptionEnabled', { enabled }),
+      this._updateState('Network.setResourceCachingDisabled', { disabled: enabled }),
       this._updateState('Network.addInterception', { url: '.*', stage: 'request', isRegex: true }),
     ]);
   }
@@ -731,8 +732,8 @@ export class WKPage implements PageDelegate {
   }
 
   async updateHttpCredentials() {
-    const credentials = this._browserContext._options.httpCredentials || { username: '', password: '' };
-    await this._pageProxySession.send('Emulation.setAuthCredentials', { username: credentials.username, password: credentials.password });
+    const credentials = this._browserContext._options.httpCredentials || { username: '', password: '', origin: '' };
+    await this._pageProxySession.send('Emulation.setAuthCredentials', { username: credentials.username, password: credentials.password, origin: credentials.origin });
   }
 
   async updateFileChooserInterception() {
@@ -763,7 +764,7 @@ export class WKPage implements PageDelegate {
   async exposeBinding(binding: PageBinding): Promise<void> {
     this._session.send('Runtime.addBinding', { name: binding.name });
     await this._updateBootstrapScript();
-    await Promise.all(this._page.frames().map(frame => frame.evaluateExpression(binding.source, false, {}).catch(e => {})));
+    await Promise.all(this._page.frames().map(frame => frame.evaluateExpression(binding.source).catch(e => {})));
   }
 
   async removeExposedBindings(): Promise<void> {
@@ -785,6 +786,9 @@ export class WKPage implements PageDelegate {
       scripts.push('delete window.ondevicemotion');
       scripts.push('delete window.ondeviceorientation');
     }
+    scripts.push('if (!window.safari) window.safari = { pushNotification: { toString() { return "[object SafariRemoteNotification]"; } } };');
+    scripts.push('if (!window.GestureEvent) window.GestureEvent = function GestureEvent() {};');
+
     for (const binding of this._page.allBindings())
       scripts.push(binding.source);
     scripts.push(...this._browserContext.initScripts);
@@ -962,7 +966,7 @@ export class WKPage implements PageDelegate {
     await this._session.send('DOM.setInputFiles', { objectId, files: protocolFiles });
   }
 
-  async setInputFilePaths(handle: dom.ElementHandle<HTMLInputElement>, paths: string[]): Promise<void> {
+  async setInputFilePaths(progress: Progress, handle: dom.ElementHandle<HTMLInputElement>, paths: string[]): Promise<void> {
     const pageProxyId = this._pageProxySession.sessionId;
     const objectId = handle._objectId;
     await Promise.all([
@@ -988,6 +992,9 @@ export class WKPage implements PageDelegate {
   async inputActionEpilogue(): Promise<void> {
   }
 
+  async resetForReuse(): Promise<void> {
+  }
+
   async getFrameElement(frame: frames.Frame): Promise<dom.ElementHandle> {
     const parent = frame.parentFrame();
     if (!parent)
@@ -1005,6 +1012,15 @@ export class WKPage implements PageDelegate {
   _onRequestWillBeSent(session: WKSession, event: Protocol.Network.requestWillBeSentPayload) {
     if (event.request.url.startsWith('data:'))
       return;
+
+    // We do not support intercepting redirects.
+    if (this._page.needsRequestInterception() && !event.redirectResponse)
+      this._requestIdToRequestWillBeSentEvent.set(event.requestId, event);
+    else
+      this._onRequest(session, event, false);
+  }
+
+  private _onRequest(session: WKSession, event: Protocol.Network.requestWillBeSentPayload, intercepted: boolean) {
     let redirectedFrom: WKInterceptableRequest | null = null;
     if (event.redirectResponse) {
       const request = this._requestIdToRequest.get(event.requestId);
@@ -1023,13 +1039,16 @@ export class WKPage implements PageDelegate {
     // TODO(einbinder) this will fail if we are an XHR document request
     const isNavigationRequest = event.type === 'Document';
     const documentId = isNavigationRequest ? event.loaderId : undefined;
-    let route = null;
-    // We do not support intercepting redirects.
-    if (this._page.needsRequestInterception() && !redirectedFrom)
-      route = new WKRouteImpl(session, event.requestId);
-    const request = new WKInterceptableRequest(session, route, frame, event, redirectedFrom, documentId);
+    const request = new WKInterceptableRequest(session, frame, event, redirectedFrom, documentId);
+    let route;
+    if (intercepted) {
+      route = new WKRouteImpl(session, request._requestId);
+      // There is no point in waiting for the raw headers in Network.responseReceived when intercepting.
+      // Use provisional headers as raw headers, so that client can call allHeaders() from the route handler.
+      request.request.setRawRequestHeaders(null);
+    }
     this._requestIdToRequest.set(event.requestId, request);
-    this._page._frameManager.requestStarted(request.request, route || undefined);
+    this._page._frameManager.requestStarted(request.request, route);
   }
 
   private _handleRequestRedirect(request: WKInterceptableRequest, responsePayload: Protocol.Network.Response, timestamp: number) {
@@ -1045,34 +1064,36 @@ export class WKPage implements PageDelegate {
   }
 
   _onRequestIntercepted(session: WKSession, event: Protocol.Network.requestInterceptedPayload) {
-    const request = this._requestIdToRequest.get(event.requestId);
-    if (!request) {
-      session.sendMayFail('Network.interceptRequestWithError', { errorType: 'Cancellation', requestId: event.requestId });
-      return;
-    }
-    // There is no point in waiting for the raw headers in Network.responseReceived when intercepting.
-    // Use provisional headers as raw headers, so that client can call allHeaders() from the route handler.
-    request.request.setRawRequestHeaders(null);
-    if (!request._route) {
+    const requestWillBeSentEvent = this._requestIdToRequestWillBeSentEvent.get(event.requestId);
+    if (!requestWillBeSentEvent) {
       // Intercepted, although we do not intend to allow interception.
       // Just continue.
-      session.sendMayFail('Network.interceptWithRequest', { requestId: request._requestId });
-    } else {
-      request._route._requestInterceptedPromise.resolve();
+      session.sendMayFail('Network.interceptWithRequest', { requestId: event.requestId });
+      return;
     }
+    this._requestIdToRequestWillBeSentEvent.delete(event.requestId);
+    this._onRequest(session, requestWillBeSentEvent, true);
   }
 
-  _onResponseReceived(event: Protocol.Network.responseReceivedPayload) {
+  _onResponseReceived(session: WKSession, event: Protocol.Network.responseReceivedPayload) {
+    const requestWillBeSentEvent = this._requestIdToRequestWillBeSentEvent.get(event.requestId);
+    if (requestWillBeSentEvent) {
+      this._requestIdToRequestWillBeSentEvent.delete(event.requestId);
+      // We received a response, so the request won't be intercepted (e.g. it was handled by a
+      // service worker and we don't intercept service workers).
+      this._onRequest(session, requestWillBeSentEvent, false);
+    }
     const request = this._requestIdToRequest.get(event.requestId);
     // FileUpload sends a response without a matching request.
     if (!request)
       return;
+
     this._requestIdToResponseReceivedPayloadEvent.set(request._requestId, event);
     const response = request.createResponse(event.response);
     this._page._frameManager.requestReceivedResponse(response);
 
     if (response.status() === 204) {
-      this._onLoadingFailed({
+      this._onLoadingFailed(session, {
         requestId: event.requestId,
         errorText: 'Aborted: 204 No Content',
         timestamp: event.timestamp
@@ -1115,7 +1136,15 @@ export class WKPage implements PageDelegate {
     this._page._frameManager.reportRequestFinished(request.request, response);
   }
 
-  _onLoadingFailed(event: Protocol.Network.loadingFailedPayload) {
+  _onLoadingFailed(session: WKSession, event: Protocol.Network.loadingFailedPayload) {
+    const requestWillBeSentEvent = this._requestIdToRequestWillBeSentEvent.get(event.requestId);
+    if (requestWillBeSentEvent) {
+      this._requestIdToRequestWillBeSentEvent.delete(event.requestId);
+      // If loading failed, the request won't be intercepted (e.g. it was handled by a
+      // service worker and we don't intercept service workers).
+      this._onRequest(session, requestWillBeSentEvent, false);
+    }
+
     const request = this._requestIdToRequest.get(event.requestId);
     // For certain requestIds we never receive requestWillBeSent event.
     // @see https://crbug.com/750469
@@ -1141,6 +1170,7 @@ export class WKPage implements PageDelegate {
   async _grantPermissions(origin: string, permissions: string[]) {
     const webPermissionToProtocol = new Map<string, string>([
       ['geolocation', 'geolocation'],
+      ['clipboard-read', 'clipboard-read'],
     ]);
     const filtered = permissions.map(permission => {
       const protocolPermission = webPermissionToProtocol.get(permission);
@@ -1153,6 +1183,10 @@ export class WKPage implements PageDelegate {
 
   async _clearPermissions() {
     await this._pageProxySession.send('Emulation.resetPermissions', {});
+  }
+
+  shouldToggleStyleSheetToSyncAnimations(): boolean {
+    return true;
   }
 }
 

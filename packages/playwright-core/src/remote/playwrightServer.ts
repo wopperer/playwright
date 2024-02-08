@@ -14,32 +14,23 @@
  * limitations under the License.
  */
 
-import { debug, wsServer } from '../utilsBundle';
-import type { WebSocketServer } from '../utilsBundle';
-import http from 'http';
 import type { Browser } from '../server/browser';
 import type { Playwright } from '../server/playwright';
 import { createPlaywright } from '../server/playwright';
 import { PlaywrightConnection } from './playwrightConnection';
 import type { ClientType } from './playwrightConnection';
 import type  { LaunchOptions } from '../server/types';
-import { ManualPromise } from '../utils/manualPromise';
+import { Semaphore } from '../utils/semaphore';
 import type { AndroidDevice } from '../server/android/android';
-import { type SocksProxy } from '../common/socksProxy';
-
-const debugLog = debug('pw:server');
-
-let lastConnectionId = 0;
-const kConnectionSymbol = Symbol('kConnection');
-
-function newLogger() {
-  const id = ++lastConnectionId;
-  return (message: string) => debugLog(`[id=${id}] ${message}`);
-}
+import type { SocksProxy } from '../common/socksProxy';
+import { debugLogger } from '../utils/debugLogger';
+import { userAgentVersionMatchesErrorMessage } from '../utils';
+import { WSServer } from '../utils/wsServer';
 
 type ServerOptions = {
   path: string;
   maxConnections: number;
+  mode: 'default' | 'launchServer' | 'extension';
   preLaunchedBrowser?: Browser;
   preLaunchedAndroidDevice?: AndroidDevice;
   preLaunchedSocksProxy?: SocksProxy;
@@ -47,159 +38,94 @@ type ServerOptions = {
 
 export class PlaywrightServer {
   private _preLaunchedPlaywright: Playwright | undefined;
-  private _wsServer: WebSocketServer | undefined;
   private _options: ServerOptions;
+  private _wsServer: WSServer;
 
   constructor(options: ServerOptions) {
     this._options = options;
     if (options.preLaunchedBrowser)
-      this._preLaunchedPlaywright = options.preLaunchedBrowser.options.rootSdkObject as Playwright;
+      this._preLaunchedPlaywright = options.preLaunchedBrowser.attribution.playwright;
     if (options.preLaunchedAndroidDevice)
-      this._preLaunchedPlaywright = options.preLaunchedAndroidDevice._android._playwrightOptions.rootSdkObject as Playwright;
-  }
+      this._preLaunchedPlaywright = options.preLaunchedAndroidDevice._android.attribution.playwright;
 
-  async listen(port: number = 0): Promise<string> {
-    const server = http.createServer((request: http.IncomingMessage, response: http.ServerResponse) => {
-      if (request.method === 'GET' && request.url === '/json') {
-        response.setHeader('Content-Type', 'application/json');
-        response.end(JSON.stringify({
-          wsEndpointPath: this._options.path,
-        }));
-        return;
-      }
-      response.end('Running');
-    });
-    server.on('error', error => debugLog(error));
-
-    const wsEndpoint = await new Promise<string>((resolve, reject) => {
-      server.listen(port, () => {
-        const address = server.address();
-        if (!address) {
-          reject(new Error('Could not bind server socket'));
-          return;
-        }
-        const wsEndpoint = typeof address === 'string' ? `${address}${this._options.path}` : `ws://127.0.0.1:${address.port}${this._options.path}`;
-        resolve(wsEndpoint);
-      }).on('error', reject);
-    });
-
-    debugLog('Listening at ' + wsEndpoint);
-    this._wsServer = new wsServer({ server, path: this._options.path });
     const browserSemaphore = new Semaphore(this._options.maxConnections);
     const controllerSemaphore = new Semaphore(1);
     const reuseBrowserSemaphore = new Semaphore(1);
-    this._wsServer.on('connection', (ws, request) => {
-      const url = new URL('http://localhost' + (request.url || ''));
-      const browserHeader = request.headers['x-playwright-browser'];
-      const browserName = url.searchParams.get('browser') || (Array.isArray(browserHeader) ? browserHeader[0] : browserHeader) || null;
-      const proxyHeader = request.headers['x-playwright-proxy'];
-      const proxyValue = url.searchParams.get('proxy') || (Array.isArray(proxyHeader) ? proxyHeader[0] : proxyHeader);
 
-      const launchOptionsHeader = request.headers['x-playwright-launch-options'] || '';
-      let launchOptions: LaunchOptions = {};
-      try {
-        launchOptions = JSON.parse(Array.isArray(launchOptionsHeader) ? launchOptionsHeader[0] : launchOptionsHeader);
-      } catch (e) {
+    this._wsServer = new WSServer({
+      onUpgrade: (request, socket) => {
+        const uaError = userAgentVersionMatchesErrorMessage(request.headers['user-agent'] || '');
+        if (uaError)
+          return { error: `HTTP/${request.httpVersion} 428 Precondition Required\r\n\r\n${uaError}` };
+      },
+
+      onHeaders: headers => {
+        if (process.env.PWTEST_SERVER_WS_HEADERS)
+          headers.push(process.env.PWTEST_SERVER_WS_HEADERS!);
+      },
+
+      onConnection: (request, url, ws, id) => {
+        const browserHeader = request.headers['x-playwright-browser'];
+        const browserName = url.searchParams.get('browser') || (Array.isArray(browserHeader) ? browserHeader[0] : browserHeader) || null;
+        const proxyHeader = request.headers['x-playwright-proxy'];
+        const proxyValue = url.searchParams.get('proxy') || (Array.isArray(proxyHeader) ? proxyHeader[0] : proxyHeader);
+
+        const launchOptionsHeader = request.headers['x-playwright-launch-options'] || '';
+        const launchOptionsHeaderValue = Array.isArray(launchOptionsHeader) ? launchOptionsHeader[0] : launchOptionsHeader;
+        const launchOptionsParam = url.searchParams.get('launch-options');
+        let launchOptions: LaunchOptions = {};
+        try {
+          launchOptions = JSON.parse(launchOptionsParam || launchOptionsHeaderValue);
+        } catch (e) {
+        }
+
+        // Instantiate playwright for the extension modes.
+        const isExtension = this._options.mode === 'extension';
+        if (isExtension) {
+          if (!this._preLaunchedPlaywright)
+            this._preLaunchedPlaywright = createPlaywright({ sdkLanguage: 'javascript', isServer: true });
+        }
+
+        let clientType: ClientType = 'launch-browser';
+        let semaphore: Semaphore = browserSemaphore;
+        if (isExtension && url.searchParams.has('debug-controller')) {
+          clientType = 'controller';
+          semaphore = controllerSemaphore;
+        } else if (isExtension) {
+          clientType = 'reuse-browser';
+          semaphore = reuseBrowserSemaphore;
+        } else if (this._options.mode === 'launchServer') {
+          clientType = 'pre-launched-browser-or-android';
+          semaphore = browserSemaphore;
+        }
+
+        return new PlaywrightConnection(
+            semaphore.acquire(),
+            clientType, ws,
+            { socksProxyPattern: proxyValue, browserName, launchOptions },
+            {
+              playwright: this._preLaunchedPlaywright,
+              browser: this._options.preLaunchedBrowser,
+              androidDevice: this._options.preLaunchedAndroidDevice,
+              socksProxy: this._options.preLaunchedSocksProxy,
+            },
+            id, () => semaphore.release());
+      },
+
+      onClose: async () => {
+        debugLogger.log('server', 'closing browsers');
+        if (this._preLaunchedPlaywright)
+          await Promise.all(this._preLaunchedPlaywright.allBrowsers().map(browser => browser.close({ reason: 'Playwright Server stopped' })));
+        debugLogger.log('server', 'closed browsers');
       }
-
-      const log = newLogger();
-      log(`serving connection: ${request.url}`);
-      const isDebugControllerClient = !!request.headers['x-playwright-debug-controller'];
-      const shouldReuseBrowser = !!request.headers['x-playwright-reuse-context'];
-
-      // If we started in the legacy reuse-browser mode, create this._preLaunchedPlaywright.
-      // If we get a debug-controller request, create this._preLaunchedPlaywright.
-      if (isDebugControllerClient || shouldReuseBrowser) {
-        if (!this._preLaunchedPlaywright)
-          this._preLaunchedPlaywright = createPlaywright('javascript');
-      }
-
-      let clientType: ClientType = 'playwright';
-      let semaphore: Semaphore = browserSemaphore;
-      if (isDebugControllerClient) {
-        clientType = 'controller';
-        semaphore = controllerSemaphore;
-      } else if (shouldReuseBrowser) {
-        clientType = 'reuse-browser';
-        semaphore = reuseBrowserSemaphore;
-      } else if (this._options.preLaunchedBrowser || this._options.preLaunchedAndroidDevice) {
-        clientType = 'pre-launched-browser-or-android';
-        semaphore = browserSemaphore;
-      } else if (browserName) {
-        clientType = 'launch-browser';
-        semaphore = browserSemaphore;
-      }
-
-      const connection = new PlaywrightConnection(
-          semaphore.aquire(),
-          clientType, ws,
-          { socksProxyPattern: proxyValue, browserName, launchOptions },
-          {
-            playwright: this._preLaunchedPlaywright,
-            browser: this._options.preLaunchedBrowser,
-            androidDevice: this._options.preLaunchedAndroidDevice,
-            socksProxy: this._options.preLaunchedSocksProxy,
-          },
-          log, () => semaphore.release());
-      (ws as any)[kConnectionSymbol] = connection;
     });
+  }
 
-    return wsEndpoint;
+  async listen(port: number = 0, hostname?: string): Promise<string> {
+    return this._wsServer.listen(port, hostname, this._options.path);
   }
 
   async close() {
-    const server = this._wsServer;
-    if (!server)
-      return;
-    debugLog('closing websocket server');
-    const waitForClose = new Promise(f => server.close(f));
-    // First disconnect all remaining clients.
-    await Promise.all(Array.from(server.clients).map(async ws => {
-      const connection = (ws as any)[kConnectionSymbol] as PlaywrightConnection | undefined;
-      if (connection)
-        await connection.close();
-      try {
-        ws.terminate();
-      } catch (e) {
-      }
-    }));
-    await waitForClose;
-    debugLog('closing http server');
-    await new Promise(f => server.options.server!.close(f));
-    this._wsServer = undefined;
-    debugLog('closed server');
-  }
-}
-
-export class Semaphore {
-  private _max: number;
-  private _aquired = 0;
-  private _queue: ManualPromise[] = [];
-
-  constructor(max: number) {
-    this._max = max;
-  }
-
-  setMax(max: number) {
-    this._max = max;
-  }
-
-  aquire(): Promise<void> {
-    const lock = new ManualPromise();
-    this._queue.push(lock);
-    this._flush();
-    return lock;
-  }
-
-  release() {
-    --this._aquired;
-    this._flush();
-  }
-
-  private _flush() {
-    while (this._aquired < this._max && this._queue.length) {
-      ++this._aquired;
-      this._queue.shift()!.resolve();
-    }
+    await this._wsServer.close();
   }
 }

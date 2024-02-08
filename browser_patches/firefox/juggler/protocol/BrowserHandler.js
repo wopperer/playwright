@@ -5,7 +5,6 @@
 "use strict";
 
 const {AddonManager} = ChromeUtils.import("resource://gre/modules/AddonManager.jsm");
-const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const {TargetRegistry} = ChromeUtils.import("chrome://juggler/content/TargetRegistry.js");
 const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
 const {PageHandler} = ChromeUtils.import("chrome://juggler/content/protocol/PageHandler.js");
@@ -14,7 +13,7 @@ const {AppConstants} = ChromeUtils.import("resource://gre/modules/AppConstants.j
 const helper = new Helper();
 
 class BrowserHandler {
-  constructor(session, dispatcher, targetRegistry, onclose, onstart) {
+  constructor(session, dispatcher, targetRegistry, startCompletePromise, onclose) {
     this._session = session;
     this._dispatcher = dispatcher;
     this._targetRegistry = targetRegistry;
@@ -24,15 +23,26 @@ class BrowserHandler {
     this._createdBrowserContextIds = new Set();
     this._attachedSessions = new Map();
     this._onclose = onclose;
-    this._onstart = onstart;
+    this._startCompletePromise = startCompletePromise;
   }
 
-  async ['Browser.enable']({attachToDefaultContext}) {
+  async ['Browser.enable']({attachToDefaultContext, userPrefs = []}) {
     if (this._enabled)
       return;
-    await this._onstart();
+    await this._startCompletePromise;
     this._enabled = true;
     this._attachToDefaultContext = attachToDefaultContext;
+
+    for (const { name, value } of userPrefs) {
+      if (value === true || value === false)
+        Services.prefs.setBoolPref(name, value);
+      else if (typeof value === 'string')
+        Services.prefs.setStringPref(name, value);
+      else if (typeof value === 'number')
+        Services.prefs.setIntPref(name, value);
+      else
+        throw new Error(`Preference "${name}" has unsupported value: ${JSON.stringify(value)}`);
+    }
 
     this._eventListeners = [
       helper.on(this._targetRegistry, TargetRegistry.Events.TargetCreated, this._onTargetCreated.bind(this)),
@@ -136,6 +146,7 @@ class BrowserHandler {
         waitForWindowClosed(browserWindow),
       ]);
     }
+    await this._startCompletePromise;
     this._onclose();
     Services.startup.quit(Ci.nsIAppStartup.eForceQuit);
   }
@@ -150,6 +161,12 @@ class BrowserHandler {
 
   ['Browser.setExtraHTTPHeaders']({browserContextId, headers}) {
     this._targetRegistry.browserContextForId(browserContextId).extraHTTPHeaders = headers;
+  }
+
+  ['Browser.clearCache']() {
+    // Clearing only the context cache does not work: https://bugzilla.mozilla.org/show_bug.cgi?id=1819147
+    Services.cache2.clear();
+    ChromeUtils.clearStyleSheetCache();
   }
 
   ['Browser.setHTTPCredentials']({browserContextId, credentials}) {

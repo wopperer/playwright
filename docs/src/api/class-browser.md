@@ -33,9 +33,9 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     firefox = playwright.firefox
     browser = await firefox.launch()
     page = await browser.new_page()
@@ -49,9 +49,9 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     firefox = playwright.firefox
     browser = firefox.launch()
     page = browser.new_page()
@@ -67,7 +67,7 @@ using Microsoft.Playwright;
 
 using var playwright = await Playwright.CreateAsync();
 var firefox = playwright.Firefox;
-var browser = await firefox.LaunchAsync(new BrowserTypeLaunchOptions { Headless = false });
+var browser = await firefox.LaunchAsync(new() { Headless = false });
 var page = await browser.NewPageAsync();
 await page.GotoAsync("https://www.bing.com");
 await browser.CloseAsync();
@@ -101,6 +101,12 @@ This is similar to force quitting the browser. Therefore, you should call [`meth
 :::
 
 The [Browser] object itself is considered to be disposed and cannot be used anymore.
+
+### option: Browser.close.reason
+* since: v1.40
+- `reason` <[string]>
+
+The reason to be reported to the operations interrupted by the browser closure.
 
 ## method: Browser.contexts
 * since: v1.8
@@ -155,7 +161,6 @@ Indicates that the browser is connected.
 
 ## async method: Browser.newBrowserCDPSession
 * since: v1.11
-* langs: js, python, csharp
 - returns: <[CDPSession]>
 
 :::note
@@ -299,7 +304,7 @@ be opened in Chrome DevTools performance panel.
 **Usage**
 
 ```js
-await browser.startTracing(page, {path: 'trace.json'});
+await browser.startTracing(page, { path: 'trace.json' });
 await page.goto('https://www.google.com');
 await browser.stopTracing();
 ```

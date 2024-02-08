@@ -14,74 +14,76 @@
  * limitations under the License.
  */
 
-import type { StackFrame } from '@protocol/channels';
-import type { ActionTraceEvent } from '@trace/trace';
-import { Source as SourceView } from '@web/components/source';
 import { SplitView } from '@web/components/splitView';
 import * as React from 'react';
-import { useAsyncMemo } from './helpers';
+import { useAsyncMemo } from '@web/uiUtils';
 import './sourceTab.css';
 import { StackTraceView } from './stackTrace';
-
-type StackInfo = string | {
-  frames: StackFrame[];
-  fileContent: Map<string, string>;
-};
+import { CodeMirrorWrapper } from '@web/components/codeMirrorWrapper';
+import type { SourceHighlight } from '@web/components/codeMirrorWrapper';
+import type { SourceLocation, SourceModel } from './modelUtil';
+import type { StackFrame } from '@protocol/channels';
 
 export const SourceTab: React.FunctionComponent<{
-  action: ActionTraceEvent | undefined,
-}> = ({ action }) => {
-  const [lastAction, setLastAction] = React.useState<ActionTraceEvent | undefined>();
+  stack: StackFrame[] | undefined,
+  sources: Map<string, SourceModel>,
+  hideStackFrames?: boolean,
+  rootDir?: string,
+  fallbackLocation?: SourceLocation,
+}> = ({ stack, sources, hideStackFrames, rootDir, fallbackLocation }) => {
+  const [lastStack, setLastStack] = React.useState<StackFrame[] | undefined>();
   const [selectedFrame, setSelectedFrame] = React.useState<number>(0);
-  const [needReveal, setNeedReveal] = React.useState<boolean>(false);
 
-  if (lastAction !== action) {
-    setLastAction(action);
-    setSelectedFrame(0);
-    setNeedReveal(true);
-  }
+  React.useEffect(() => {
+    if (lastStack !== stack) {
+      setLastStack(stack);
+      setSelectedFrame(0);
+    }
+  }, [stack, lastStack, setLastStack, setSelectedFrame]);
 
-  const stackInfo = React.useMemo<StackInfo>(() => {
-    if (!action)
-      return '';
-    const { metadata } = action;
-    if (!metadata.stack)
-      return '';
-    const frames = metadata.stack;
-    return {
-      frames,
-      fileContent: new Map(),
-    };
-  }, [action]);
+  const { source, highlight, targetLine, fileName } = useAsyncMemo<{ source: SourceModel, targetLine?: number, fileName?: string, highlight: SourceHighlight[] }>(async () => {
+    const actionLocation = stack?.[selectedFrame];
+    const shouldUseFallback = !actionLocation?.file;
+    if (shouldUseFallback && !fallbackLocation)
+      return { source: { file: '', errors: [], content: undefined }, targetLine: 0, highlight: [] };
 
-  const content = useAsyncMemo<string>(async () => {
-    let value: string;
-    if (typeof stackInfo === 'string') {
-      value = stackInfo;
-    } else {
-      const filePath = stackInfo.frames[selectedFrame].file;
-      if (!stackInfo.fileContent.has(filePath)) {
-        const sha1 = await calculateSha1(filePath);
-        stackInfo.fileContent.set(filePath, await fetch(`sha1/src@${sha1}.txt`).then(response => response.text()).catch(e => `<Unable to read "${filePath}">`));
+    const file = shouldUseFallback ? fallbackLocation!.file : actionLocation.file;
+    let source = sources.get(file);
+    // Fallback location can fall outside the sources model.
+    if (!source) {
+      source = { errors: fallbackLocation?.source?.errors || [], content: undefined };
+      sources.set(file, source);
+    }
+
+    const targetLine = shouldUseFallback ? fallbackLocation?.line || source.errors[0]?.line || 0 : actionLocation.line;
+    const fileName = rootDir && file.startsWith(rootDir) ? file.substring(rootDir.length + 1) : file;
+    const highlight: SourceHighlight[] = source.errors.map(e => ({ type: 'error', line: e.line, message: e.message }));
+    highlight.push({ line: targetLine, type: 'running' });
+
+    // After the source update, but before the test run, don't trust the cache.
+    if (source.content === undefined || shouldUseFallback) {
+      const sha1 = await calculateSha1(file);
+      try {
+        let response = await fetch(`sha1/src@${sha1}.txt`);
+        if (response.status === 404)
+          response = await fetch(`file?path=${encodeURIComponent(file)}`);
+        if (response.status >= 400)
+          source.content = `<Unable to read "${file}">`;
+        else
+          source.content = await response.text();
+      } catch {
+        source.content = `<Unable to read "${file}">`;
       }
-      value = stackInfo.fileContent.get(filePath)!;
     }
-    return value;
-  }, [stackInfo, selectedFrame], '');
+    return { source, highlight, targetLine, fileName };
+  }, [stack, selectedFrame, rootDir, fallbackLocation], { source: { errors: [], content: 'Loading\u2026' }, highlight: [] });
 
-  const targetLine = typeof stackInfo === 'string' ? 0 : stackInfo.frames[selectedFrame]?.line || 0;
-
-  const targetLineRef = React.createRef<HTMLDivElement>();
-  React.useLayoutEffect(() => {
-    if (needReveal && targetLineRef.current) {
-      targetLineRef.current.scrollIntoView({ block: 'center', inline: 'nearest' });
-      setNeedReveal(false);
-    }
-  }, [needReveal, targetLineRef]);
-
-  return <SplitView sidebarSize={100} orientation='vertical'>
-    <SourceView text={content} language='javascript' highlight={[{ line: targetLine, type: 'running' }]} revealLine={targetLine}></SourceView>
-    <StackTraceView action={action} selectedFrame={selectedFrame} setSelectedFrame={setSelectedFrame}></StackTraceView>
+  return <SplitView sidebarSize={200} orientation='horizontal' sidebarHidden={hideStackFrames}>
+    <div className='vbox' data-testid='source-code'>
+      {fileName && <div className='source-tab-file-name'>{fileName}</div>}
+      <CodeMirrorWrapper text={source.content || ''} language='javascript' highlight={highlight} revealLine={targetLine} readOnly={true} lineNumbers={true} />
+    </div>
+    <StackTraceView stack={stack} selectedFrame={selectedFrame} setSelectedFrame={setSelectedFrame} />
   </SplitView>;
 };
 

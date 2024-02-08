@@ -63,8 +63,19 @@ export class JSHandle<T = any> extends ChannelOwner<channels.JSHandleChannel> im
     return null as any;
   }
 
+  async [Symbol.asyncDispose]() {
+    await this.dispose();
+  }
+
   async dispose() {
     return await this._channel.dispose();
+  }
+
+  async _objectCount() {
+    return await this._wrapApiCall(async () => {
+      const { count } = await this._channel.objectCount();
+      return count;
+    });
   }
 
   override toString(): string {

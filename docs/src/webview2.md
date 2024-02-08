@@ -3,6 +3,8 @@ id: webview2
 title: "WebView2"
 ---
 
+## Introduction
+
 The following will explain how to use Playwright with [Microsoft Edge WebView2](https://docs.microsoft.com/en-us/microsoft-edge/webview2/). WebView2 is a WinForms control, which will use Microsoft Edge under the hood to render web content. It is a part of the Microsoft Edge browser and is available on Windows 10 and Windows 11. Playwright can be used to automate WebView2 applications and can be used to test web content in WebView2. For connecting to WebView2, Playwright uses [`method: BrowserType.connectOverCDP`] which connects to it via the Chrome DevTools Protocol (CDP).
 
 ## Overview
@@ -68,21 +70,27 @@ Using the following, Playwright will run your WebView2 application as a sub-proc
 
 <!-- source code is available here to verify that the examples are working https://github.com/mxschmitt/playwright-webview2-demo -->
 
-```ts
-// webView2Test.ts
+```js title="webView2Test.ts"
 import { test as base } from '@playwright/test';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import childProcess from 'child_process';
 
-const EXECUTABLE_PATH = path.join(__dirname, '../../webview2-app/bin/Debug/net6.0-windows/webview2.exe');
+const EXECUTABLE_PATH = path.join(
+    __dirname,
+    '../../webview2-app/bin/Debug/net8.0-windows/webview2.exe',
+);
 
 export const test = base.extend({
   browser: async ({ playwright }, use, testInfo) => {
     const cdpPort = 10000 + testInfo.workerIndex;
-    fs.accessSync(EXECUTABLE_PATH, fs.constants.X_OK); // Make sure that the executable exists and is executable
-    const userDataDir = path.join(fs.realpathSync.native(os.tmpdir()), `playwright-webview2-tests/user-data-dir-${testInfo.workerIndex}`);
+    // Make sure that the executable exists and is executable
+    fs.accessSync(EXECUTABLE_PATH, fs.constants.X_OK);
+    const userDataDir = path.join(
+        fs.realpathSync.native(os.tmpdir()),
+        `playwright-webview2-tests/user-data-dir-${testInfo.workerIndex}`,
+    );
     const webView2Process = childProcess.spawn(EXECUTABLE_PATH, [], {
       shell: true,
       env: {
@@ -97,7 +105,7 @@ export const test = base.extend({
     }));
     const browser = await playwright.chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
     await use(browser);
-    await browser.close()
+    await browser.close();
     childProcess.execSync(`taskkill /pid ${webView2Process.pid} /T /F`);
     fs.rmdirSync(userDataDir, { recursive: true });
   },
@@ -114,8 +122,7 @@ export const test = base.extend({
 export { expect } from '@playwright/test';
 ```
 
-```ts
-// example.spec.ts
+```js title="example.spec.ts"
 import { test, expect } from './webView2Test';
 
 test('test WebView2', async ({ page }) => {
@@ -125,8 +132,7 @@ test('test WebView2', async ({ page }) => {
 });
 ```
 
-```java
-// WebView2Process.java
+```java title="WebView2Process.java"
 package com.example;
 
 import java.io.BufferedReader;
@@ -142,7 +148,7 @@ public class WebView2Process {
   public int cdpPort;
   private Path _dataDir;
   private Process _process;
-  private Path _executablePath = Path.of("../webview2-app/bin/Debug/net6.0-windows/webview2.exe");
+  private Path _executablePath = Path.of("../webview2-app/bin/Debug/net8.0-windows/webview2.exe");
 
   public WebView2Process() throws IOException {
     cdpPort = nextFreePort();
@@ -200,8 +206,7 @@ public class WebView2Process {
 }
 ```
 
-```java
-// TestExample.java
+```java title="TestExample.java"
 package com.example;
 
 import com.microsoft.playwright.Browser;
@@ -248,8 +253,7 @@ public class TestExample {
 }
 ```
 
-```python
-# conftest.py
+```python title="conftest.py"
 import os
 import socket
 import tempfile
@@ -264,7 +268,7 @@ EXECUTABLE_PATH = (
     / "webview2-app"
     / "bin"
     / "Debug"
-    / "net6.0-windows"
+    / "net8.0-windows"
     / "webview2.exe"
 )
 
@@ -331,8 +335,7 @@ def _find_free_port(port=9000, max_port=65535):
     raise IOError("no free ports")
 ```
 
-```python
-# test_webview2.py
+```python title="test_webview2.py"
 from playwright.sync_api import Page, expect
 
 
@@ -358,7 +361,7 @@ public class WebView2Test : PlaywrightTest
     public IPage Page { get; internal set; } = null!;
     private Process? _webView2Process = null;
     private string _userDataDir = null!;
-    private string _executablePath = Path.Join(Directory.GetCurrentDirectory(), @"..\..\..\..\webview2-app\bin\Debug\net6.0-windows\webview2.exe");
+    private string _executablePath = Path.Join(Directory.GetCurrentDirectory(), @"..\..\..\..\webview2-app\bin\Debug\net8.0-windows\webview2.exe");
 
     [SetUp]
     public async Task BrowserSetUp()

@@ -18,6 +18,7 @@ import type { BrowserWindow } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { electronTest as test, expect } from './electronTest';
+import type { ConsoleMessage } from 'playwright';
 
 test('should fire close event', async ({ launchElectronApp }) => {
   const electronApp = await launchElectronApp('electron-app.js');
@@ -29,6 +30,48 @@ test('should fire close event', async ({ launchElectronApp }) => {
   // Give it some time to fire more events - there should not be any.
   await new Promise(f => setTimeout(f, 1000));
   expect(events.join('|')).toBe('context|application');
+});
+
+test('should fire console events', async ({ launchElectronApp }) => {
+  const electronApp = await launchElectronApp('electron-app.js');
+  const messages = [];
+  electronApp.on('console', message => messages.push({ type: message.type(), text: message.text() }));
+  await electronApp.evaluate(() => {
+    console.log('its type log');
+    console.debug('its type debug');
+    console.info('its type info');
+    console.error('its type error');
+    console.warn('its type warn');
+  });
+  await electronApp.close();
+  expect(messages).toEqual([
+    { type: 'log', text: 'its type log' },
+    { type: 'debug', text: 'its type debug' },
+    { type: 'info', text: 'its type info' },
+    { type: 'error', text: 'its type error' },
+    { type: 'warning', text: 'its type warn' },
+  ]);
+});
+
+test('should fire console events with handles and complex objects', async ({ launchElectronApp }) => {
+  const electronApp = await launchElectronApp('electron-app.js');
+  const messages: ConsoleMessage[] = [];
+  electronApp.on('console', message => messages.push(message));
+  await electronApp.evaluate(() => {
+    globalThis.complexObject = [{ a: 1, b: 2, c: 3 }, { a: 4, b: 5, c: 6 }, { a: 7, b: 8, c: 9 }];
+    console.log(globalThis.complexObject[0], globalThis.complexObject[1], globalThis.complexObject[2]);
+  });
+  expect(messages.length).toBe(1);
+  const message = messages[0];
+  expect(message.text()).toBe('{a: 1, b: 2, c: 3} {a: 4, b: 5, c: 6} {a: 7, b: 8, c: 9}');
+  expect(message.args().length).toBe(3);
+  expect(await message.args()[0].jsonValue()).toEqual({ a: 1, b: 2, c: 3 });
+  expect(await message.args()[0].evaluate(part => part === globalThis.complexObject[0])).toBeTruthy();
+  expect(await message.args()[1].jsonValue()).toEqual({ a: 4, b: 5, c: 6 });
+  expect(await message.args()[1].evaluate(part => part === globalThis.complexObject[1])).toBeTruthy();
+  expect(await message.args()[2].jsonValue()).toEqual({ a: 7, b: 8, c: 9 });
+  expect(await message.args()[2].evaluate(part => part === globalThis.complexObject[2])).toBeTruthy();
+  await electronApp.close();
 });
 
 test('should dispatch ready event', async ({ launchElectronApp }) => {
@@ -48,9 +91,11 @@ test('should script application', async ({ electronApp }) => {
   expect(appPath).toBe(path.resolve(__dirname));
 });
 
-test('should preserve args', async ({ electronApp }) => {
-  const argv = await electronApp.evaluate(async () => process.argv);
-  expect(argv.slice(1)).toEqual([expect.stringContaining(path.join('electron', 'electron-app.js'))]);
+test('should preserve args', async ({ launchElectronApp, isMac }) => {
+  const electronApp = await launchElectronApp('electron-app-args.js', ['foo', 'bar']);
+  const argv = await electronApp.evaluate(async () => globalThis.argv);
+  const electronPath = isMac ? path.join('dist', 'Electron.app') : path.join('dist', 'electron');
+  expect(argv).toEqual([expect.stringContaining(electronPath), expect.stringContaining(path.join('electron', 'electron-app-args.js')), 'foo', 'bar']);
 });
 
 test('should return windows', async ({ electronApp, newWindow }) => {
@@ -64,8 +109,8 @@ test('should evaluate handle', async ({ electronApp }) => {
 });
 
 test('should route network', async ({ electronApp, newWindow }) => {
-  await electronApp.context().route('**/empty.html', (route, request) => {
-    route.fulfill({
+  await electronApp.context().route('**/empty.html', async (route, request) => {
+    await route.fulfill({
       status: 200,
       contentType: 'text/html',
       body: '<title>Hello World</title>',
@@ -93,7 +138,7 @@ test('should expose function', async ({ electronApp, newWindow }) => {
 test('should wait for first window', async ({ electronApp }) => {
   await electronApp.evaluate(({ BrowserWindow }) => {
     const window = new BrowserWindow({ width: 800, height: 600 });
-    window.loadURL('data:text/html,<title>Hello World!</title>');
+    void window.loadURL('data:text/html,<title>Hello World!</title>');
   });
   const window = await electronApp.firstWindow();
   expect(await window.title()).toBe('Hello World!');
@@ -118,13 +163,13 @@ test('should return browser window', async ({ launchElectronApp }) => {
 });
 
 test('should bypass csp', async ({ launchElectronApp, server }) => {
-  const app = await launchElectronApp('electron-app.js', { bypassCSP: true });
+  const app = await launchElectronApp('electron-app.js', [], { bypassCSP: true });
   await app.evaluate(electron => {
     const window = new electron.BrowserWindow({
       width: 800,
       height: 600,
     });
-    window.loadURL('about:blank');
+    void window.loadURL('about:blank');
   });
   const page = await app.firstWindow();
   await page.goto(server.PREFIX + '/csp.html');
@@ -167,7 +212,7 @@ test('should return same browser window for browser view pages', async ({ launch
 });
 
 test('should record video', async ({ launchElectronApp }, testInfo) => {
-  const app = await launchElectronApp('electron-window-app.js', {
+  const app = await launchElectronApp('electron-window-app.js', [], {
     recordVideo: { dir: testInfo.outputPath('video') }
   });
   const page = await app.firstWindow();

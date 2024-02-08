@@ -35,7 +35,7 @@ import { kLifecycleEvents } from './types';
 import { urlMatches } from '../utils/network';
 import type * as api from '../../types/types';
 import type * as structs from '../../types/structs';
-import { debugLogger } from '../common/debugLogger';
+import { addSourceUrlToScript } from './clientHelper';
 
 export type WaitForNavigationOptions = {
   timeout?: number,
@@ -104,8 +104,8 @@ export class Frame extends ChannelOwner<channels.FrameChannel> implements api.Fr
   private _setupNavigationWaiter(options: { timeout?: number }): Waiter {
     const waiter = new Waiter(this._page!, '');
     if (this._page!.isClosed())
-      waiter.rejectImmediately(new Error('Navigation failed because page was closed!'));
-    waiter.rejectOnEvent(this._page!, Events.Page.Close, new Error('Navigation failed because page was closed!'));
+      waiter.rejectImmediately(this._page!._closeErrorWithReason());
+    waiter.rejectOnEvent(this._page!, Events.Page.Close, () => this._page!._closeErrorWithReason());
     waiter.rejectOnEvent(this._page!, Events.Page.Crash, new Error('Navigation failed because page crashed!'));
     waiter.rejectOnEvent<Frame>(this._page!, Events.Page.FrameDetached, new Error('Navigating frame was detached!'), frame => frame === this);
     const timeout = this._page!._timeoutSettings.navigationTimeout(options);
@@ -114,7 +114,7 @@ export class Frame extends ChannelOwner<channels.FrameChannel> implements api.Fr
   }
 
   async waitForNavigation(options: WaitForNavigationOptions = {}): Promise<network.Response | null> {
-    return this._page!._wrapApiCall(async () => {
+    return await this._page!._wrapApiCall(async () => {
       const waitUntil = verifyLoadState('waitUntil', options.waitUntil === undefined ? 'load' : options.waitUntil);
       const waiter = this._setupNavigationWaiter(options);
 
@@ -150,7 +150,7 @@ export class Frame extends ChannelOwner<channels.FrameChannel> implements api.Fr
 
   async waitForLoadState(state: LifecycleEvent = 'load', options: { timeout?: number } = {}): Promise<void> {
     state = verifyLoadState('state', state);
-    return this._page!._wrapApiCall(async () => {
+    return await this._page!._wrapApiCall(async () => {
       const waiter = this._setupNavigationWaiter(options);
       if (this._loadStates.has(state)) {
         waiter.log(`  not waiting, "${state}" event already fired`);
@@ -267,7 +267,7 @@ export class Frame extends ChannelOwner<channels.FrameChannel> implements api.Fr
     const copy = { ...options };
     if (copy.path) {
       copy.content = (await fs.promises.readFile(copy.path)).toString();
-      copy.content += '//# sourceURL=' + copy.path.replace(/\n/g, '');
+      copy.content = addSourceUrlToScript(copy.content, copy.path);
     }
     return ElementHandle.from((await this._channel.addScriptTag({ ...copy })).element);
   }
@@ -401,12 +401,7 @@ export class Frame extends ChannelOwner<channels.FrameChannel> implements api.Fr
 
   async setInputFiles(selector: string, files: string | FilePayload | string[] | FilePayload[], options: channels.FrameSetInputFilesOptions = {}): Promise<void> {
     const converted = await convertInputFiles(files, this.page().context());
-    if (converted.files) {
-      await this._channel.setInputFiles({ selector, files: converted.files, ...options });
-    } else {
-      debugLogger.log('api', 'switching to large files mode');
-      await this._channel.setInputFilePaths({ selector, ...converted, ...options });
-    }
+    await this._channel.setInputFiles({ selector, ...converted, ...options });
   }
 
   async type(selector: string, text: string, options: channels.FrameTypeOptions = {}) {

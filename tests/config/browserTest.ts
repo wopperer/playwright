@@ -28,7 +28,7 @@ import { parseHar } from '../config/utils';
 export type BrowserTestWorkerFixtures = PageWorkerFixtures & {
   browserVersion: string;
   defaultSameSiteCookieValue: string;
-  allowsThirdParty
+  allowsThirdParty: boolean;
   browserMajorVersion: number;
   browserType: BrowserType;
   isAndroid: boolean;
@@ -53,7 +53,8 @@ const test = baseTest.extend<BrowserTestTestFixtures, BrowserTestWorkerFixtures>
     await run(browser.version());
   }, { scope: 'worker' }],
 
-  browserType: [async ({ playwright, browserName }, run) => {
+  browserType: [async ({ playwright, browserName, mode }, run) => {
+    test.skip(mode === 'service2');
     await run(playwright[browserName]);
   }, { scope: 'worker' }],
 
@@ -61,7 +62,7 @@ const test = baseTest.extend<BrowserTestTestFixtures, BrowserTestWorkerFixtures>
     if (browserName === 'firefox' && !channel)
       await run(browserMajorVersion >= 103);
     else if (browserName === 'firefox' && channel === 'firefox-beta')
-      await run(browserMajorVersion >= 97 && browserMajorVersion < 103);
+      await run(browserMajorVersion < 103 || browserMajorVersion >= 110);
     else
       await run(false);
   }, { scope: 'worker' }],
@@ -72,7 +73,7 @@ const test = baseTest.extend<BrowserTestTestFixtures, BrowserTestWorkerFixtures>
     else if (browserName === 'webkit')
       await run('None');
     else if (browserName === 'firefox' && channel === 'firefox-beta')
-      await run(browserMajorVersion === 96 || browserMajorVersion >= 103 ? 'Lax' : 'None');
+      await run(browserMajorVersion >= 103 && browserMajorVersion < 110 ? 'Lax' : 'None');
     else if (browserName === 'firefox' && channel !== 'firefox-beta')
       await run(browserMajorVersion >= 103 ? 'None' : 'Lax');
     else
@@ -91,7 +92,8 @@ const test = baseTest.extend<BrowserTestTestFixtures, BrowserTestWorkerFixtures>
     await run(_contextFactory);
   },
 
-  createUserDataDir: async ({}, run) => {
+  createUserDataDir: async ({ mode }, run) => {
+    test.skip(mode.startsWith('service'));
     const dirs: string[] = [];
     // We do not put user data dir in testOutputPath,
     // because we do not want to upload them as test result artifacts.
@@ -132,7 +134,7 @@ const test = baseTest.extend<BrowserTestTestFixtures, BrowserTestWorkerFixtures>
         server = remoteServer;
       } else {
         const runServer = new RunServer();
-        await runServer._start(childProcess);
+        await runServer.start(childProcess);
         server = runServer;
       }
       return server;

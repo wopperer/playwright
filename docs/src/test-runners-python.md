@@ -3,6 +3,8 @@ id: test-runners
 title: "Pytest Plugin Reference"
 ---
 
+## Introduction
+
 Playwright provides a [Pytest](https://docs.pytest.org/en/stable/) plugin to write end-to-end tests. To get started with it, refer to the [getting started guide](./intro.md).
 
 ## Usage
@@ -24,15 +26,19 @@ addopts = --headed --browser firefox
 
 ## CLI arguments
 
+Note that CLI arguments are only applied to the default `browser`, `context` and `page` fixtures.
+If you create a browser, a context or a page with the API call like [`method: Browser.newContext`], the CLI arguments are not applied.
+
 - `--headed`: Run tests in headed mode (default: headless).
 - `--browser`: Run tests in a different browser `chromium`, `firefox`, or `webkit`. It can be specified multiple times (default: `chromium`).
 - `--browser-channel` [Browser channel](./browsers.md) to be used.
-- `--slowmo` Run tests with slow mo.
+- `--slowmo` Slows down Playwright operations by the specified amount of milliseconds. Useful so that you can see what is going on (default: 0).
 - `--device` [Device](./emulation.md) to be emulated.
 - `--output` Directory for artifacts produced by tests (default: `test-results`).
 - `--tracing` Whether to record a [trace](./trace-viewer.md) for each test. `on`, `off`, or `retain-on-failure` (default: `off`).
 - `--video` Whether to record video for each test. `on`, `off`, or `retain-on-failure` (default: `off`).
 - `--screenshot` Whether to automatically capture a screenshot after each test. `on`, `off`, or `only-on-failure` (default: `off`).
+- `--full-page-screenshot` Whether to take a full page screenshot on failure. By default, only the viewport is captured. Requires `--screenshot` to be enabled (default: `off`).
 
 ## Fixtures
 
@@ -40,6 +46,7 @@ This plugin configures Playwright-specific [fixtures for pytest](https://docs.py
 
 ```py
 def test_my_app_is_working(fixture_name):
+    pass
     # Test using fixture_name
     # ...
 ```
@@ -63,6 +70,17 @@ def test_my_app_is_working(fixture_name):
 - `browser_type_launch_args`: Override launch arguments for [`method: BrowserType.launch`]. It should return a Dict.
 - `browser_context_args`: Override the options for [`method: Browser.newContext`]. It should return a Dict.
 
+Its also possible to override the context options ([`method: Browser.newContext`]) for a single test by using the `browser_context_args` marker:
+
+```python
+import pytest
+
+@pytest.mark.browser_context_args(timezone_id="Europe/Berlin", locale="en-GB")
+def test_browser_context_args(page):
+    assert page.evaluate("window.navigator.userAgent") == "Europe/Berlin"
+    assert page.evaluate("window.navigator.languages") == ["de-DE"]
+```
+
 ## Parallelism: Running Multiple Tests at Once
 
 If your tests are running on a machine with a lot of CPUs, you can speed up the overall execution time of your test suite by using [`pytest-xdist`](https://pypi.org/project/pytest-xdist/) to run multiple tests at once:
@@ -82,8 +100,7 @@ See [Running Tests](./running-tests.md) for general information on `pytest` opti
 
 ### Configure Mypy typings for auto-completion
 
-```py
-# test_my_application.py
+```py title="test_my_application.py"
 from playwright.sync_api import Page
 
 def test_visit_admin_dashboard(page: Page):
@@ -99,10 +116,11 @@ Run tests with slow mo with the `--slowmo` argument.
 pytest --slowmo 100
 ```
 
+Slows down Playwright operations by 100 milliseconds.
+
 ### Skip test by browser
 
-```py
-# test_my_application.py
+```py title="test_my_application.py"
 import pytest
 
 @pytest.mark.skip_browser("firefox")
@@ -113,8 +131,7 @@ def test_visit_example(page):
 
 ### Run on a specific browser
 
-```py
-# conftest.py
+```py title="conftest.py"
 import pytest
 
 @pytest.mark.only_browser("chromium")
@@ -129,8 +146,7 @@ def test_visit_example(page):
 pytest --browser-channel chrome
 ```
 
-```python
-# test_my_application.py
+```python title="test_my_application.py"
 def test_example(page):
     page.goto("https://example.com")
 ```
@@ -144,8 +160,7 @@ for that which allows you to set the base url from the config, CLI arg or as a f
 pytest --base-url http://localhost:8080
 ```
 
-```py
-# test_my_application.py
+```py title="test_my_application.py"
 def test_visit_example(page):
     page.goto("/admin")
     # -> Will result in http://localhost:8080/admin
@@ -153,8 +168,7 @@ def test_visit_example(page):
 
 ### Ignore HTTPS errors
 
-```py
-# conftest.py
+```py title="conftest.py"
 import pytest
 
 @pytest.fixture(scope="session")
@@ -167,8 +181,7 @@ def browser_context_args(browser_context_args):
 
 ### Use custom viewport size
 
-```py
-# conftest.py
+```py title="conftest.py"
 import pytest
 
 @pytest.fixture(scope="session")
@@ -184,8 +197,7 @@ def browser_context_args(browser_context_args):
 
 ### Device emulation
 
-```py
-# conftest.py
+```py title="conftest.py"
 import pytest
 
 @pytest.fixture(scope="session")
@@ -201,8 +213,7 @@ Or via the CLI `--device="iPhone 11 Pro"`
 
 ### Persistent context
 
-```py
-# conftest.py
+```py title="conftest.py"
 import pytest
 from playwright.sync_api import BrowserType
 from typing import Dict

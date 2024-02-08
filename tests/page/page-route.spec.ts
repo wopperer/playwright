@@ -31,7 +31,7 @@ it('should intercept @smoke', async ({ page, server }) => {
     expect(request.resourceType()).toBe('document');
     expect(request.frame() === page.mainFrame()).toBe(true);
     expect(request.frame().url()).toBe('about:blank');
-    route.continue();
+    void route.continue();
     intercepted = true;
   });
   const response = await page.goto(server.EMPTY_PAGE);
@@ -43,26 +43,26 @@ it('should unroute', async ({ page, server }) => {
   let intercepted = [];
   await page.route('**/*', route => {
     intercepted.push(1);
-    route.fallback();
+    void route.fallback();
   });
   await page.route('**/empty.html', route => {
     intercepted.push(2);
-    route.fallback();
+    void route.fallback();
   });
   await page.route('**/empty.html', route => {
     intercepted.push(3);
-    route.fallback();
+    void route.fallback();
   });
   const handler4 = route => {
     intercepted.push(4);
-    route.fallback();
+    void route.fallback();
   };
-  await page.route('**/empty.html', handler4);
+  await page.route(/empty.html/, handler4);
   await page.goto(server.EMPTY_PAGE);
   expect(intercepted).toEqual([4, 3, 2, 1]);
 
   intercepted = [];
-  await page.unroute('**/empty.html', handler4);
+  await page.unroute(/empty.html/, handler4);
   await page.goto(server.EMPTY_PAGE);
   expect(intercepted).toEqual([3, 2, 1]);
 
@@ -70,6 +70,32 @@ it('should unroute', async ({ page, server }) => {
   await page.unroute('**/empty.html');
   await page.goto(server.EMPTY_PAGE);
   expect(intercepted).toEqual([1]);
+});
+
+it('should support ? in glob pattern', async ({ page, server }) => {
+  server.setRoute('/index', (req, res) => res.end('index-no-hello'));
+  server.setRoute('/index123hello', (req, res) => res.end('index123hello'));
+  server.setRoute('/index?hello', (req, res) => res.end('index?hello'));
+
+  await page.route('**/index?hello', async (route, request) => {
+    await route.fulfill({ body: 'intercepted any character' });
+  });
+
+  await page.route('**/index\\?hello', async (route, request) => {
+    await route.fulfill({ body: 'intercepted question mark' });
+  });
+
+  await page.goto(server.PREFIX + '/index?hello');
+  expect(await page.content()).toContain('intercepted question mark');
+
+  await page.goto(server.PREFIX + '/index');
+  expect(await page.content()).toContain('index-no-hello');
+
+  await page.goto(server.PREFIX + '/index1hello');
+  expect(await page.content()).toContain('intercepted any character');
+
+  await page.goto(server.PREFIX + '/index123hello');
+  expect(await page.content()).toContain('index123hello');
 });
 
 it('should work when POST is redirected with 302', async ({ page, server }) => {
@@ -94,7 +120,7 @@ it('should work when header manipulation headers with redirect', async ({ page, 
     const headers = Object.assign({}, route.request().headers(), {
       foo: 'bar'
     });
-    route.continue({ headers });
+    void route.continue({ headers });
   });
   await page.goto(server.PREFIX + '/rrredirect');
 });
@@ -105,7 +131,7 @@ it('should be able to remove headers', async ({ page, server }) => {
   await page.route('**/*', async route => {
     const headers = { ...route.request().headers() };
     delete headers['foo'];
-    route.continue({ headers });
+    void route.continue({ headers });
   });
 
   const [serverRequest] = await Promise.all([
@@ -119,7 +145,7 @@ it('should contain referer header', async ({ page, server }) => {
   const requests = [];
   await page.route('**/*', route => {
     requests.push(route.request());
-    route.continue();
+    void route.continue();
   });
   await page.goto(server.PREFIX + '/one-style.html');
   expect(requests[1].url()).toContain('/one-style.css');
@@ -151,7 +177,7 @@ it('should override cookie header', async ({ page, server, browserName }) => {
     const headers = await route.request().allHeaders();
     cookieValueInRoute = headers['cookie'];
     headers['cookie'] = 'overridden=value';
-    route.continue({ headers });
+    void route.continue({ headers });
   });
   const [serverReq] = await Promise.all([
     server.waitForRequest('/empty.html'),
@@ -168,17 +194,22 @@ it('should show custom HTTP headers', async ({ page, server }) => {
   });
   await page.route('**/*', route => {
     expect(route.request().headers()['foo']).toBe('bar');
-    route.continue();
+    void route.continue();
   });
   const response = await page.goto(server.EMPTY_PAGE);
   expect(response.ok()).toBe(true);
 });
 
 // @see https://github.com/GoogleChrome/puppeteer/issues/4337
-it('should work with redirect inside sync XHR', async ({ page, server }) => {
+it('should work with redirect inside sync XHR', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28461' });
+  it.fixme(browserName === 'webkit', 'No Network.requestIntercepted for the request');
   await page.goto(server.EMPTY_PAGE);
   server.setRedirect('/logo.png', '/pptr.png');
-  await page.route('**/*', route => route.continue());
+  let continuePromise;
+  await page.route('**/*', route => {
+    continuePromise = route.continue();
+  });
   const status = await page.evaluate(async () => {
     const request = new XMLHttpRequest();
     request.open('GET', '/logo.png', false);  // `false` makes the request synchronous
@@ -186,6 +217,8 @@ it('should work with redirect inside sync XHR', async ({ page, server }) => {
     return request.status;
   });
   expect(status).toBe(200);
+  expect(continuePromise).toBeTruthy();
+  await continuePromise;
 });
 
 it('should pause intercepted XHR until continue', async ({ page, server, browserName }) => {
@@ -248,7 +281,7 @@ it('should work with custom referer headers', async ({ page, server, browserName
       expect(route.request().headers()['referer']).toBe(server.EMPTY_PAGE + ', ' + server.EMPTY_PAGE);
     else
       expect(route.request().headers()['referer']).toBe(server.EMPTY_PAGE);
-    route.continue();
+    void route.continue();
   });
   const response = await page.goto(server.EMPTY_PAGE);
   expect(response.ok()).toBe(true);
@@ -282,6 +315,24 @@ it('should be abortable with custom error codes', async ({ page, server, browser
     expect(failedRequest.failure().errorText).toBe('net::ERR_INTERNET_DISCONNECTED');
 });
 
+it('should not throw if request was cancelled by the page', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28490' });
+  let interceptCallback;
+  const interceptPromise = new Promise<Route>(f => interceptCallback = f);
+  await page.route('**/data.json', route => interceptCallback(route));
+  await page.goto(server.EMPTY_PAGE);
+  page.evaluate(url => {
+    globalThis.controller = new AbortController();
+    return fetch(url, { signal: globalThis.controller.signal });
+  }, server.PREFIX + '/data.json').catch(() => {});
+  const route = await interceptPromise;
+  const failurePromise = page.waitForEvent('requestfailed');
+  await page.evaluate(() => globalThis.controller.abort());
+  const cancelledRequest = await failurePromise;
+  expect(cancelledRequest.failure().errorText).toMatch(/cancelled|aborted/i);
+  await route.abort(); // Should not throw.
+});
+
 it('should send referer', async ({ page, server }) => {
   await page.setExtraHTTPHeaders({
     referer: 'http://google.com/'
@@ -311,7 +362,7 @@ it('should fail navigation when aborting main resource', async ({ page, server, 
 it('should not work with redirects', async ({ page, server }) => {
   const intercepted = [];
   await page.route('**/*', route => {
-    route.continue();
+    void route.continue();
     intercepted.push(route.request());
   });
   server.setRedirect('/non-existing-page.html', '/non-existing-page-2.html');
@@ -347,16 +398,16 @@ it('should chain fallback w/ dynamic URL', async ({ page, server }) => {
   const intercepted = [];
   await page.route('**/bar', route => {
     intercepted.push(1);
-    route.fallback({ url: server.EMPTY_PAGE });
+    void route.fallback({ url: server.EMPTY_PAGE });
   });
   await page.route('**/foo', route => {
     intercepted.push(2);
-    route.fallback({ url: 'http://localhost/bar' });
+    void route.fallback({ url: 'http://localhost/bar' });
   });
 
   await page.route('**/empty.html', route => {
     intercepted.push(3);
-    route.fallback({ url: 'http://localhost/foo' });
+    void route.fallback({ url: 'http://localhost/foo' });
   });
 
   await page.goto(server.EMPTY_PAGE);
@@ -366,7 +417,7 @@ it('should chain fallback w/ dynamic URL', async ({ page, server }) => {
 it('should work with redirects for subresources', async ({ page, server }) => {
   const intercepted = [];
   await page.route('**/*', route => {
-    route.continue();
+    void route.continue();
     intercepted.push(route.request());
   });
   server.setRedirect('/one-style.css', '/two-style.css');
@@ -399,7 +450,7 @@ it('should work with equal requests', async ({ page, server }) => {
   let spinner = false;
   // Cancel 2nd request.
   await page.route('**/*', route => {
-    spinner ? route.abort() : route.continue();
+    void (spinner ? route.abort() : route.continue());
     spinner = !spinner;
   });
   const results = [];
@@ -412,7 +463,7 @@ it('should navigate to dataURL and not fire dataURL requests', async ({ page, se
   const requests = [];
   await page.route('**/*', route => {
     requests.push(route.request());
-    route.continue();
+    void route.continue();
   });
   const dataURL = 'data:text/html,<div>yo</div>';
   const response = await page.goto(dataURL);
@@ -425,7 +476,7 @@ it('should be able to fetch dataURL and not fire dataURL requests', async ({ pag
   const requests = [];
   await page.route('**/*', route => {
     requests.push(route.request());
-    route.continue();
+    void route.continue();
   });
   const dataURL = 'data:text/html,<div>yo</div>';
   const text = await page.evaluate(url => fetch(url).then(r => r.text()), dataURL);
@@ -437,7 +488,7 @@ it('should navigate to URL with hash and and fire requests without hash', async 
   const requests = [];
   await page.route('**/*', route => {
     requests.push(route.request());
-    route.continue();
+    void route.continue();
   });
   const response = await page.goto(server.EMPTY_PAGE + '#hash');
   expect(response.status()).toBe(200);
@@ -466,7 +517,7 @@ it('should work with encoded server - 2', async ({ page, server, browserName, br
   // report encoded URL for stylesheet. @see crbug.com/759388
   const requests = [];
   await page.route('**/*', route => {
-    route.continue();
+    void route.continue();
     requests.push(route.request());
   });
   const response = await page.goto(`data:text/html,<link rel="stylesheet" href="${server.PREFIX}/fonts?helvetica|arial"/>`);
@@ -482,7 +533,7 @@ it('should not throw "Invalid Interception Id" if the request was cancelled', as
   await page.setContent('<iframe></iframe>');
   let route = null;
   await page.route('**/*', async r => route = r);
-  page.$eval('iframe', (frame, url) => frame.src = url, server.EMPTY_PAGE);
+  void page.$eval('iframe', (frame, url) => frame.src = url, server.EMPTY_PAGE);
   // Wait for request interception.
   await page.waitForEvent('request');
   // Delete frame to cause request to be canceled.
@@ -497,7 +548,7 @@ it('should intercept main resource during cross-process navigation', async ({ pa
   let intercepted = false;
   await page.route(server.CROSS_PROCESS_PREFIX + '/empty.html', route => {
     intercepted = true;
-    route.continue();
+    void route.continue();
   });
   const response = await page.goto(server.CROSS_PROCESS_PREFIX + '/empty.html');
   expect(response.ok()).toBe(true);
@@ -552,10 +603,10 @@ it('should not fulfill with redirect status', async ({ page, server, browserName
   });
 
   for (status = 300; status < 310; status++) {
-    const exception = await Promise.race([
+    const [, exception] = await Promise.all([
       page.evaluate(url => location.href = url, server.PREFIX + '/redirect_this'),
-      new Promise((f, r) => {fulfill = f; reject = r;})
-    ]) as any;
+      new Promise<Error>((f, r) => {fulfill = f; reject = r;})
+    ]);
     expect(exception).toBeTruthy();
     expect(exception.message.includes('Cannot fulfill with redirect status')).toBe(true);
   }
@@ -688,6 +739,64 @@ it('should respect cors overrides', async ({ page, server, browserName, isAndroi
   }
 });
 
+it('should not auto-intercept non-preflight OPTIONS', async ({ page, server, isAndroid }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20469' });
+  it.fixme(isAndroid);
+
+  await page.goto(server.EMPTY_PAGE);
+
+  let requests = [];
+  server.setRoute('/something', (request, response) => {
+    requests.push(request.method + ':' + request.url);
+    if (request.method === 'OPTIONS') {
+      response.writeHead(200, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, DELETE',
+        'Access-Control-Allow-Headers': '*',
+        'Cache-Control': 'no-cache'
+      });
+      response.end(`Hello`);
+      return;
+    }
+    response.writeHead(200, { 'Access-Control-Allow-Origin': '*' });
+    response.end('World');
+  });
+
+  // Without interception.
+  {
+    requests = [];
+    const [text1, text2] = await page.evaluate(async url => {
+      const response1 = await fetch(url, { method: 'OPTIONS' });
+      const text1 = await response1.text();
+      const response2 = await fetch(url, { method: 'GET' });
+      const text2 = await response2.text();
+      return [text1, text2];
+    }, server.CROSS_PROCESS_PREFIX + '/something');
+    expect.soft(text1).toBe('Hello');
+    expect.soft(text2).toBe('World');
+    // Preflight for OPTIONS, then OPTIONS, then GET without preflight.
+    expect.soft(requests).toEqual(['OPTIONS:/something', 'OPTIONS:/something', 'GET:/something']);
+  }
+
+  // With interception.
+  {
+    await page.route('**/something', route => route.continue());
+
+    requests = [];
+    const [text1, text2] = await page.evaluate(async url => {
+      const response1 = await fetch(url, { method: 'OPTIONS' });
+      const text1 = await response1.text();
+      const response2 = await fetch(url, { method: 'GET' });
+      const text2 = await response2.text();
+      return [text1, text2];
+    }, server.CROSS_PROCESS_PREFIX + '/something');
+    expect.soft(text1).toBe('Hello');
+    expect.soft(text2).toBe('World');
+    // Preflight for OPTIONS is auto-fulfilled, then OPTIONS, then GET without preflight.
+    expect.soft(requests).toEqual(['OPTIONS:/something', 'GET:/something']);
+  }
+});
+
 it('should support cors with POST', async ({ page, server }) => {
   await page.goto(server.EMPTY_PAGE);
   await page.route('**/cars', async route => {
@@ -810,7 +919,7 @@ it('should support the times parameter with route matching', async ({ page, serv
   const intercepted = [];
   await page.route('**/empty.html', route => {
     intercepted.push(1);
-    route.continue();
+    void route.continue();
   }, { times: 1 });
   await page.goto(server.EMPTY_PAGE);
   await page.goto(server.EMPTY_PAGE);
@@ -818,10 +927,29 @@ it('should support the times parameter with route matching', async ({ page, serv
   expect(intercepted).toHaveLength(1);
 });
 
+it('should work if handler with times parameter was removed from another handler', async ({ page, server }) => {
+  const intercepted = [];
+  const handler = async route => {
+    intercepted.push('first');
+    void route.continue();
+  };
+  await page.route('**/*', handler, { times: 1 });
+  await page.route('**/*', async route => {
+    intercepted.push('second');
+    await page.unroute('**/*', handler);
+    await route.fallback();
+  });
+  await page.goto(server.EMPTY_PAGE);
+  expect(intercepted).toEqual(['second']);
+  intercepted.length = 0;
+  await page.goto(server.EMPTY_PAGE);
+  expect(intercepted).toEqual(['second']);
+});
+
 it('should support async handler w/ times', async ({ page, server }) => {
   await page.route('**/empty.html', async route => {
     await new Promise(f => setTimeout(f, 100));
-    route.fulfill({
+    await route.fulfill({
       body: '<html>intercepted</html>',
       contentType: 'text/html'
     });
@@ -836,7 +964,7 @@ it('should contain raw request header', async ({ page, server }) => {
   let headers: any;
   await page.route('**/*', async route => {
     headers = await route.request().allHeaders();
-    route.continue();
+    void route.continue();
   });
   await page.goto(server.PREFIX + '/empty.html');
   expect(headers.accept).toBeTruthy();
@@ -846,7 +974,7 @@ it('should contain raw response header', async ({ page, server }) => {
   let request: any;
   await page.route('**/*', async route => {
     request = route.request();
-    route.continue();
+    void route.continue();
   });
   await page.goto(server.PREFIX + '/empty.html');
   const response = await request.response();
@@ -882,3 +1010,20 @@ for (const method of ['fulfill', 'continue', 'fallback', 'abort'] as const) {
     expect(e.message).toContain('Route is already handled!');
   });
 }
+
+it('should intercept when postData is more than 1MB', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/22753' });
+  await page.goto(server.EMPTY_PAGE);
+  let interceptionCallback;
+  const interceptionPromise = new Promise(x => interceptionCallback = x);
+  const POST_BODY = '0'.repeat(2 * 1024 * 1024); // 2MB
+  await page.route('**/404.html', async route => {
+    await route.abort();
+    interceptionCallback(route.request().postData());
+  });
+  await page.evaluate(POST_BODY => fetch('/404.html', {
+    method: 'POST',
+    body: POST_BODY,
+  }).catch(e => {}), POST_BODY);
+  expect(await interceptionPromise).toBe(POST_BODY);
+});

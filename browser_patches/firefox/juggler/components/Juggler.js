@@ -6,7 +6,6 @@ var EXPORTED_SYMBOLS = ["Juggler", "JugglerFactory"];
 
 const {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
 const {ComponentUtils} = ChromeUtils.import("resource://gre/modules/ComponentUtils.jsm");
-const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
 const {Dispatcher} = ChromeUtils.import("chrome://juggler/content/protocol/Dispatcher.js");
 const {BrowserHandler} = ChromeUtils.import("chrome://juggler/content/protocol/BrowserHandler.js");
 const {NetworkObserver} = ChromeUtils.import("chrome://juggler/content/NetworkObserver.js");
@@ -35,6 +34,8 @@ ActorManagerParent.addJSWindowActors({
         DOMDocElementInserted: {},
         // Also, listening to DOMContentLoaded.
         DOMContentLoaded: {},
+        DOMWillOpenModalDialog: {},
+        DOMModalDialogClosed: {},
       },
     },
     allFrames: true,
@@ -131,13 +132,13 @@ class Juggler {
         };
         pipe.init(connection);
         const dispatcher = new Dispatcher(connection);
-        browserHandler = new BrowserHandler(dispatcher.rootSession(), dispatcher, targetRegistry, () => {
+        browserHandler = new BrowserHandler(dispatcher.rootSession(), dispatcher, targetRegistry, browserStartupFinishedPromise, () => {
           if (this._silent)
             Services.startup.exitLastWindowClosingSurvivalArea();
           connection.onclose();
           pipe.stop();
           pipeStopped = true;
-        }, () => browserStartupFinishedPromise);
+        });
         dispatcher.rootSession().setHandler(browserHandler);
         loadStyleSheet();
         dump(`\nJuggler listening to the pipe\n`);

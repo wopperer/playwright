@@ -33,6 +33,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createGuid, urlMatches } from '../../utils';
 import { WritableStreamDispatcher } from './writableStreamDispatcher';
+import { DialogDispatcher } from './dialogDispatcher';
+import type { Page } from '../page';
+import type { Dialog } from '../dialog';
+import type { ConsoleMessage } from '../console';
+import { serializeError } from '../errors';
+import { ElementHandleDispatcher } from './elementHandlerDispatcher';
 
 export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channels.BrowserContextChannel, DispatcherScope> implements channels.BrowserContextChannel {
   _type_EventTarget = true;
@@ -47,6 +53,7 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
 
     super(parentScope, context, 'BrowserContext', {
       isChromium: context._browser.options.isChromium,
+      isLocalBrowserOnServer: context._browser._isCollocatedWithServer,
       requestContext,
       tracing,
     });
@@ -78,6 +85,28 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
     this.addObjectListener(BrowserContext.Events.Close, () => {
       this._dispatchEvent('close');
       this._dispose();
+    });
+    this.addObjectListener(BrowserContext.Events.PageError, (error: Error, page: Page) => {
+      this._dispatchEvent('pageError', { error: serializeError(error), page: PageDispatcher.from(this, page) });
+    });
+    this.addObjectListener(BrowserContext.Events.Console, (message: ConsoleMessage) => {
+      const page = message.page()!;
+      if (this._shouldDispatchEvent(page, 'console')) {
+        const pageDispatcher = PageDispatcher.from(this, page);
+        this._dispatchEvent('console', {
+          page: pageDispatcher,
+          type: message.type(),
+          text: message.text(),
+          args: message.args().map(a => ElementHandleDispatcher.fromJSHandle(pageDispatcher, a)),
+          location: message.location(),
+        });
+      }
+    });
+    this.addObjectListener(BrowserContext.Events.Dialog, (dialog: Dialog) => {
+      if (this._shouldDispatchEvent(dialog.page(), 'dialog'))
+        this._dispatchEvent('dialog', { dialog: new DialogDispatcher(this, dialog) });
+      else
+        dialog.close().catch(() => {});
     });
 
     if (context._browser.options.name === 'chromium') {
@@ -137,22 +166,25 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
   }
 
   private _shouldDispatchNetworkEvent(request: Request, event: channels.BrowserContextUpdateSubscriptionParams['event'] & channels.PageUpdateSubscriptionParams['event']): boolean {
+    return this._shouldDispatchEvent(request.frame()?._page?.initializedOrUndefined(), event);
+  }
+
+  private _shouldDispatchEvent(page: Page | undefined, event: channels.BrowserContextUpdateSubscriptionParams['event'] & channels.PageUpdateSubscriptionParams['event']): boolean {
     if (this._subscriptions.has(event))
       return true;
-    const page = request.frame()?._page?.initializedOrUndefined();
     const pageDispatcher = page ? existingDispatcher<PageDispatcher>(page) : undefined;
     if (pageDispatcher?._subscriptions.has(event))
       return true;
     return false;
   }
 
-  async createTempFile(params: channels.BrowserContextCreateTempFileParams, metadata?: channels.Metadata): Promise<channels.BrowserContextCreateTempFileResult> {
+  async createTempFile(params: channels.BrowserContextCreateTempFileParams): Promise<channels.BrowserContextCreateTempFileResult> {
     const dir = this._context._browser.options.artifactsDir;
     const tmpDir = path.join(dir, 'upload-' + createGuid());
     await fs.promises.mkdir(tmpDir);
     this._context._tempDirs.push(tmpDir);
     const file = fs.createWriteStream(path.join(tmpDir, params.name));
-    return { writableStream: new WritableStreamDispatcher(this, file) };
+    return { writableStream: new WritableStreamDispatcher(this, file, params.lastModifiedMs) };
   }
 
   async setDefaultNavigationTimeoutNoReply(params: channels.BrowserContextSetDefaultNavigationTimeoutNoReplyParams) {
@@ -165,6 +197,10 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
 
   async exposeBinding(params: channels.BrowserContextExposeBindingParams): Promise<void> {
     await this._context.exposeBinding(params.name, !!params.needsHandle, (source, ...args) => {
+      // When reusing the context, we might have some bindings called late enough,
+      // after context and page dispatchers have been disposed.
+      if (this._disposed)
+        return;
       const pageDispatcher = PageDispatcher.from(this, source.page);
       const binding = new BindingCallDispatcher(pageDispatcher, params.name, !!params.needsHandle, source, args);
       this._dispatchEvent('bindingCall', { binding });
@@ -236,7 +272,8 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
   }
 
   async close(params: channels.BrowserContextCloseParams, metadata: CallMetadata): Promise<void> {
-    await this._context.close(metadata);
+    metadata.potentiallyClosesScope = true;
+    await this._context.close(params);
   }
 
   async recorderSupplementEnable(params: channels.BrowserContextRecorderSupplementEnableParams): Promise<void> {
@@ -268,7 +305,7 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
     return { artifact: ArtifactDispatcher.from(this, artifact) };
   }
 
-  async updateSubscription(params: channels.BrowserContextUpdateSubscriptionParams, metadata?: channels.Metadata | undefined): Promise<void> {
+  async updateSubscription(params: channels.BrowserContextUpdateSubscriptionParams): Promise<void> {
     if (params.enabled)
       this._subscriptions.add(params.event);
     else

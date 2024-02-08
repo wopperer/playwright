@@ -4,6 +4,342 @@ title: "Release notes"
 toc_max_heading_level: 2
 ---
 
+## Version 1.41
+
+### New APIs
+
+- New method [`method: Page.unrouteAll`] removes all routes registered by [`method: Page.route`] and [`method: Page.routeFromHAR`].
+- New method [`method: BrowserContext.unrouteAll`] removes all routes registered by [`method: BrowserContext.route`] and [`method: BrowserContext.routeFromHAR`].
+- New option [`option: style`] in [`method: Page.screenshot`] and [`method: Locator.screenshot`] to add custom CSS to the page before taking a screenshot.
+
+### Browser Versions
+
+* Chromium 121.0.6167.57
+* Mozilla Firefox 121.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 120
+* Microsoft Edge 120
+
+## Version 1.40
+
+### Test Generator Update
+
+![Playwright Test Generator](https://github.com/microsoft/playwright/assets/9881434/e8d67e2e-f36d-4301-8631-023948d3e190)
+
+New tools to generate assertions:
+- "Assert visibility" tool generates [`method: LocatorAssertions.toBeVisible`].
+- "Assert value" tool generates [`method: LocatorAssertions.toHaveValue`].
+- "Assert text" tool generates [`method: LocatorAssertions.toContainText`].
+
+Here is an example of a generated test with assertions:
+
+```java
+page.navigate("https://playwright.dev/");
+page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("Get started")).click();
+assertThat(page.getByLabel("Breadcrumbs").getByRole(AriaRole.LIST)).containsText("Installation");
+assertThat(page.getByLabel("Search")).isVisible();
+page.getByLabel("Search").click();
+page.getByPlaceholder("Search docs").fill("locator");
+assertThat(page.getByPlaceholder("Search docs")).hasValue("locator");
+```
+
+### New APIs
+
+- Option [`option: reason`] in [`method: Page.close`], [`method: BrowserContext.close`] and [`method: Browser.close`]. Close reason is reported for all operations interrupted by the closure.
+- Option [`option: firefoxUserPrefs`] in [`method: BrowserType.launchPersistentContext`].
+
+### Other Changes
+
+- Methods [`method: Download.path`] and [`method: Download.createReadStream`] throw an error for failed and cancelled downloads.
+
+### Browser Versions
+
+* Chromium 120.0.6099.28
+* Mozilla Firefox 119.0
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 119
+* Microsoft Edge 119
+
+## Version 1.39
+
+Evergreen browsers update.
+
+### Browser Versions
+
+* Chromium 119.0.6045.9
+* Mozilla Firefox 118.0.1
+* WebKit 17.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 118
+* Microsoft Edge 118
+
+## Version 1.38
+
+### Trace Viewer Updates
+
+![Playwright Trace Viewer](https://github.com/microsoft/playwright/assets/746130/0c41e20d-c54b-4600-8ca8-1cbb6393ddef)
+
+1. Zoom into time range.
+1. Network panel redesign.
+
+### New APIs
+
+- [`event: BrowserContext.webError`]
+- [`method: Locator.pressSequentially`]
+
+### Deprecations
+
+* The following methods were deprecated: [`method: Page.type`], [`method: Frame.type`],
+  [`method: Locator.type`] and [`method: ElementHandle.type`].
+  Please use [`method: Locator.fill`] instead which is much faster. Use
+  [`method: Locator.pressSequentially`] only if there is a special keyboard
+  handling on the page, and you need to press keys one-by-one.
+
+### Browser Versions
+
+* Chromium 117.0.5938.62
+* Mozilla Firefox 117.0
+* WebKit 17.0
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 116
+* Microsoft Edge 116
+
+## Version 1.37
+
+### New APIs
+
+- New methods [`method: BrowserContext.newCDPSession`] and [`method: Browser.newBrowserCDPSession`] create a [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) session for the page and browser respectively.
+
+  ```java
+  CDPSession cdpSession = page.context().newCDPSession(page);
+  cdpSession.send("Runtime.enable");
+
+  JsonObject params = new JsonObject();
+  params.addProperty("expression", "window.foo = 'bar'");
+  cdpSession.send("Runtime.evaluate", params);
+
+  Object foo = page.evaluate("window['foo']");
+  assertEquals("bar", foo);
+  ```
+
+### 📚 Debian 12 Bookworm Support
+
+Playwright now supports Debian 12 Bookworm on both x86_64 and arm64 for Chromium, Firefox and WebKit.
+Let us know if you encounter any issues!
+
+Linux support looks like this:
+
+|          | Ubuntu 20.04 | Ubuntu 22.04 | Debian 11 | Debian 12 |
+| :--- | :---: | :---: | :---: | :---: |
+| Chromium | ✅ | ✅ | ✅ | ✅ |
+| WebKit | ✅ | ✅ | ✅ | ✅ |
+| Firefox | ✅ | ✅ | ✅ | ✅ |
+
+### Browser Versions
+
+* Chromium 116.0.5845.82
+* Mozilla Firefox 115.0
+* WebKit 17.0
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 115
+* Microsoft Edge 115
+
+## Version 1.36
+
+🏝️ Summer maintenance release.
+
+### Browser Versions
+
+* Chromium 115.0.5790.75
+* Mozilla Firefox 115.0
+* WebKit 17.0
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 114
+* Microsoft Edge 114
+
+## Version 1.35
+
+### Highlights
+
+* New option `maskColor` for methods [`method: Page.screenshot`] and [`method: Locator.screenshot`] to change default masking color.
+
+* New `uninstall` CLI command to uninstall browser binaries:
+  ```bash
+  $ mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="uninstall" # remove browsers installed by this installation
+  $ mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="uninstall --all" # remove all ever-install Playwright browsers
+  ```
+
+### Browser Versions
+
+* Chromium 115.0.5790.13
+* Mozilla Firefox 113.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 114
+* Microsoft Edge 114
+
+## Version 1.34
+
+### Highlights
+
+* New [`method: Locator.and`] to create a locator that matches both locators.
+
+    ```java
+    Locator button = page.getByRole(AriaRole.BUTTON).and(page.getByTitle("Subscribe"));
+    ```
+
+* New events [`event: BrowserContext.console`] and [`event: BrowserContext.dialog`] to subscribe to any dialogs
+  and console messages from any page from the given browser context. Use the new methods [`method: ConsoleMessage.page`]
+  and [`method: Dialog.page`] to pin-point event source.
+
+### Browser Versions
+
+* Chromium 114.0.5735.26
+* Mozilla Firefox 113.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 113
+* Microsoft Edge 113
+
+## Version 1.33
+
+### Locators Update
+
+* Use [`method: Locator.or`] to create a locator that matches either of the two locators.
+  Consider a scenario where you'd like to click on a "New email" button, but sometimes a security settings dialog shows up instead.
+  In this case, you can wait for either a "New email" button, or a dialog and act accordingly:
+
+    ```java
+    Locator newEmail = page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("New email"));
+    Locator dialog = page.getByText("Confirm security settings");
+    assertThat(newEmail.or(dialog)).isVisible();
+    if (dialog.isVisible())
+      page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("Dismiss")).click();
+    newEmail.click();
+    ```
+* Use new options [`option: hasNot`] and [`option: hasNotText`] in [`method: Locator.filter`]
+  to find elements that **do not match** certain conditions.
+
+    ```java
+    Locator rowLocator = page.locator("tr");
+    rowLocator
+        .filter(new Locator.FilterOptions().setHasNotText("text in column 1"))
+        .filter(new Locator.FilterOptions().setHasNot(
+          page.getByRole(AriaRole.BUTTON,
+            new Page.GetByRoleOptions().setName("column 2 button" ))))
+        .screenshot();
+    ```
+* Use new web-first assertion [`method: LocatorAssertions.toBeAttached`] to ensure that the element
+  is present in the page's DOM. Do not confuse with the [`method: LocatorAssertions.toBeVisible`] that ensures that
+  element is both attached & visible.
+
+### New APIs
+
+- [`method: Locator.or`]
+- New option [`option: hasNot`] in [`method: Locator.filter`]
+- New option [`option: hasNotText`] in [`method: Locator.filter`]
+- [`method: LocatorAssertions.toBeAttached`]
+- New option [`option: timeout`] in [`method: Route.fetch`]
+
+### Other highlights
+
+- Native support for Apple Silicon - Playwright now runs without Rosetta
+- Added Ubuntu 22.04 (Jammy) Docker image
+
+### ⚠️ Breaking change
+
+* The `mcr.microsoft.com/playwright/java:v1.33.0` now serves a Playwright image based on Ubuntu Jammy.
+  To use the focal-based image, please use `mcr.microsoft.com/playwright/java:v1.33.0-focal` instead.
+
+### Browser Versions
+
+* Chromium 113.0.5672.53
+* Mozilla Firefox 112.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 112
+* Microsoft Edge 112
+
+## Version 1.32
+
+### New APIs
+
+- New options [`option: updateMode`] and [`option: updateContent`] in [`method: Page.routeFromHAR`] and [`method: BrowserContext.routeFromHAR`].
+- Chaining existing locator objects, see [locator docs](./locators.md#matching-inside-a-locator) for details.
+- New option [`option: name`] in method [`method: Tracing.startChunk`].
+
+### Browser Versions
+
+* Chromium 112.0.5615.29
+* Mozilla Firefox 111.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 111
+* Microsoft Edge 111
+
+
+## Version 1.31
+
+### New APIs
+
+- New assertion [`method: LocatorAssertions.toBeInViewport`] ensures that locator points to an element that intersects viewport, according to the [intersection observer API](https://developer.mozilla.org/en-US/docs/Web/API/Intersection_Observer_API).
+
+
+  ```java
+  Locator locator = page.getByRole(AriaRole.BUTTON);
+
+  // Make sure at least some part of element intersects viewport.
+  assertThat(locator).isInViewport();
+
+  // Make sure element is fully outside of viewport.
+  assertThat(locator).not().isInViewport();
+
+  // Make sure that at least half of the element intersects viewport.
+  assertThat(locator).isInViewport(new LocatorAssertions.IsInViewportOptions().setRatio(0.5));
+  ```
+
+
+### Miscellaneous
+
+- DOM snapshots in trace viewer can be now opened in a separate window.
+- New option [`option: Route.fetch.maxRedirects`] for method [`method: Route.fetch`].
+- Playwright now supports Debian 11 arm64.
+- Official [docker images](./docker.md) now include Node 18 instead of Node 16.
+
+### Browser Versions
+
+* Chromium 111.0.5563.19
+* Mozilla Firefox 109.0
+* WebKit 16.4
+
+This version was also tested against the following stable channels:
+
+* Google Chrome 110
+* Microsoft Edge 110
+
+
 ## Version 1.30
 
 ### Browser Versions
@@ -128,7 +464,7 @@ All the same methods are also available on [Locator], [FrameLocator] and [Frame]
 
 - [`method: LocatorAssertions.toHaveAttribute`] with an empty value does not match missing attribute anymore. For example, the following snippet will succeed when `button` **does not** have a `disabled` attribute.
 
-   ```js
+   ```java
    assertThat(page.getByRole(AriaRole.BUTTON)).hasAttribute("disabled", "");
    ```
 
@@ -163,7 +499,7 @@ This version was also tested against the following stable channels:
 A bunch of Playwright APIs already support the `setWaitUntil(WaitUntilState.DOMCONTENTLOADED)` option.
 For example:
 
-```js
+```java
 page.navigate("https://playwright.dev", new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
 ```
 
@@ -257,7 +593,7 @@ Use the new methods [`method: Page.routeFromHAR`] or [`method: BrowserContext.ro
 context.routeFromHAR(Paths.get("example.har"));
 ```
 
-Read more in [our documentation](./network#record-and-replay-requests).
+Read more in [our documentation](./mock.md#mocking-with-har-files).
 
 
 ### Advanced Routing
@@ -405,7 +741,7 @@ This version was also tested against the following stable channels:
   page.locator("article", new Page.LocatorOptions().setHas(page.locator(".highlight"))).click();
   ```
 
-  Read more in [locator documentation](./api/class-locator#locator-locator-option-has)
+  Read more in [locator documentation](./api/class-locator#locator-locator)
 
 - New [`method: Locator.page`]
 - [`method: Page.screenshot`] and [`method: Locator.screenshot`] now automatically hide blinking caret
@@ -478,7 +814,7 @@ Read more in [our documentation](./test-assertions).
     page.locator("li", new Page.LocatorOptions().setHasText("my item"))
         .locator("button").click();
     ```
-    Read more in [locator documentation](./api/class-locator#locator-locator-option-has-text)
+    Read more in [locator documentation](./api/class-locator#locator-locator)
 
 ### Tracing Improvements
 
@@ -862,7 +1198,7 @@ This version of Playwright was also tested against the following stable channels
 ## Version 1.8
 
 - [Selecting elements based on layout](./other-locators.md#css-matching-elements-based-on-layout) with `:left-of()`, `:right-of()`, `:above()` and `:below()`.
-- Playwright now includes [command line interface](./cli.md), former playwright-cli.
+- Playwright now includes command line interface, former playwright-cli.
   ```bash java
   mvn exec:java -e -D exec.mainClass=com.microsoft.playwright.CLI -D exec.args="--help"
   ```

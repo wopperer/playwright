@@ -6,22 +6,7 @@ Playwright Test provides many options to configure how your tests are collected 
 
 Playwright Test supports running multiple test projects at the same time. Project-specific options should be put to [`property: TestConfig.projects`], but top-level [TestConfig] can also define base options shared between all projects.
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  timeout: 30000,
-  globalTimeout: 600000,
-  reporter: 'list',
-  testDir: './tests',
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -29,6 +14,25 @@ export default defineConfig({
   globalTimeout: 600000,
   reporter: 'list',
   testDir: './tests',
+});
+```
+
+## property: TestConfig.build
+* since: v1.35
+- type: ?<[Object]>
+  - `external` ?<[Array]<[string]>> Paths to exclude from the transpilation expressed as a list of glob patterns. Typically heavy JS bundles that your test uses are listed here.
+
+Playwright transpiler configuration.
+
+**Usage**
+
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  build: {
+    external: ['**/*bundle.js'],
+  },
 });
 ```
 
@@ -43,33 +47,19 @@ export default defineConfig({
     - `animations` ?<[ScreenshotAnimations]<"allow"|"disabled">> See [`option: animations`] in [`method: Page.screenshot`]. Defaults to `"disabled"`.
     - `caret` ?<[ScreenshotCaret]<"hide"|"initial">> See [`option: caret`] in [`method: Page.screenshot`]. Defaults to `"hide"`.
     - `scale` ?<[ScreenshotScale]<"css"|"device">> See [`option: scale`] in [`method: Page.screenshot`]. Defaults to `"css"`.
+    - `stylePath` ?<[string]|[Array]<[string]>> See [`option: style`] in [`method: Page.screenshot`].
   - `toMatchSnapshot` ?<[Object]> Configuration for the [`method: SnapshotAssertions.toMatchSnapshot#1`] method.
     - `threshold` ?<[float]> an acceptable perceived color difference between the same pixel in compared images, ranging from `0` (strict) and `1` (lax). `"pixelmatch"` comparator computes color difference in [YIQ color space](https://en.wikipedia.org/wiki/YIQ) and defaults `threshold` value to `0.2`.
     - `maxDiffPixels` ?<[int]> an acceptable amount of pixels that could be different, unset by default.
     - `maxDiffPixelRatio` ?<[float]> an acceptable ratio of pixels that are different to the total amount of pixels, between `0` and `1` , unset by default.
+  - `toPass` ?<[Object]> Configuration for the [expect(value).toPass()](../test-assertions.md#expecttopass) method.
+    - `timeout` ?<[int]> timeout for toPass method in milliseconds.
 
 Configuration for the `expect` assertion library. Learn more about [various timeouts](../test-timeouts.md).
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  expect: {
-    timeout: 10000,
-    toMatchSnapshot: {
-      maxDiffPixels: 10,
-    },
-  },
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -90,19 +80,7 @@ Whether to exit with an error if any tests or groups are marked as [`method: Tes
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  forbidOnly: !!process.env.CI,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -121,19 +99,7 @@ You can configure entire test run to concurrently execute all tests in all files
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  fullyParallel: true,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -147,23 +113,11 @@ export default defineConfig({
 
 Path to the global setup file. This file will be required and run before all the tests. It must export a single function that takes a [`TestConfig`] argument.
 
-Learn more about [global setup and teardown](../test-advanced.md#global-setup-and-teardown).
+Learn more about [global setup and teardown](../test-global-setup-teardown.md).
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  globalSetup: './global-setup',
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -177,23 +131,11 @@ export default defineConfig({
 
 Path to the global teardown file. This file will be required and run after all the tests. It must export a single function. See also [`property: TestConfig.globalSetup`].
 
-Learn more about [global setup and teardown](../test-advanced.md#global-setup-and-teardown).
+Learn more about [global setup and teardown](../test-global-setup-teardown.md).
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  globalTeardown: './global-teardown',
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -209,19 +151,7 @@ Maximum time in milliseconds the whole test suite can run. Zero timeout (default
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  globalTimeout: process.env.CI ? 60 * 60 * 1000 : undefined,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -233,25 +163,13 @@ export default defineConfig({
 * since: v1.10
 - type: ?<[RegExp]|[Array]<[RegExp]>>
 
-Filter to only run tests with a title matching one of the patterns. For example, passing `grep: /cart/` should only run tests with "cart" in the title. Also available in the [command line](../test-cli.md) with the `-g` option.
+Filter to only run tests with a title matching one of the patterns. For example, passing `grep: /cart/` should only run tests with "cart" in the title. Also available in the [command line](../test-cli.md) with the `-g` option. The regular expression will be tested against the string that consists of the test file name, `test.describe` name (if any) and the test name divided by spaces, e.g. `my-test.spec.ts my-suite my-test`.
 
 `grep` option is also useful for [tagging tests](../test-annotations.md#tag-tests).
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  grep: /smoke/,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -269,19 +187,7 @@ Filter to only run tests with a title **not** matching one of the patterns. This
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  grepInvert: /manual/,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -297,19 +203,7 @@ Whether to skip snapshot expectations, such as `expect(value).toMatchSnapshot()`
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  ignoreSnapshots: !process.env.CI,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -327,19 +221,7 @@ Also available in the [command line](../test-cli.md) with the `--max-failures` a
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  maxFailures: process.env.CI ? 1 : 0,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -355,19 +237,7 @@ Metadata that will be put directly to the test report serialized as JSON.
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  metadata: 'acceptance tests',
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -383,19 +253,7 @@ Config name is visible in the report and during test execution, unless overridde
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  name: 'acceptance tests',
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -411,19 +269,7 @@ The output directory for files created during test execution. Defaults to `<pack
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  outputDir: './test-results',
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -437,17 +283,7 @@ This directory is cleaned at the start. When running a test, a unique subdirecto
 
 Here is an example that uses [`method: TestInfo.outputPath`] to create a temporary file.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-const fs = require('fs');
-
-test('example test', async ({}, testInfo) => {
-  const file = testInfo.outputPath('temporary-file.txt');
-  await fs.promises.writeFile(file, 'Put some data to the file', 'utf8');
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 
@@ -467,19 +303,7 @@ The base directory, relative to the config file, for snapshot files created with
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  snapshotDir: './snapshots',
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -508,19 +332,7 @@ Whether to preserve test output in the [`property: TestConfig.outputDir`]. Defau
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  preserveOutput: 'always',
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -537,22 +349,7 @@ Playwright Test supports running multiple test projects at the same time. See [T
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-const { devices } = require('@playwright/test');
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  projects: [
-    { name: 'chromium', use: devices['Desktop Chrome'] }
-  ]
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
@@ -570,19 +367,7 @@ Whether to suppress stdio and stderr output from the tests.
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  quiet: !!process.env.CI,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -598,19 +383,7 @@ The number of times to repeat each test, useful for debugging flaky tests.
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  repeatEach: 3,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -635,19 +408,7 @@ Learn more in the [reporters guide](../test-reporters.md).
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  reporter: 'line',
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -665,19 +426,7 @@ Whether to report slow test files. Pass `null` to disable this feature.
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  reportSlowTests: null,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -697,19 +446,7 @@ The maximum number of retry attempts given to failed tests. By default failing t
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  retries: 2,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -729,25 +466,38 @@ Learn more about [parallelism and sharding](../test-parallel.md) with Playwright
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  shard: { total: 10, current: 3 },
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   shard: { total: 10, current: 3 },
 });
 ```
+
+
+## property: TestConfig.tagFilter
+* since: v1.42
+- type: ?<[string]>
+
+Filter to only run tests with or without particular tag(s). This property must be a logical expression containing tags, parenthesis `(` and `)`, and operators `and`, `or` and `not`.
+
+Learn more about [tagging](../test-annotations.md#tag-tests).
+
+**Usage**
+
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  tagFilter: '@smoke',
+});
+```
+
+Tag expression examples:
+* `tagFilter: '@smoke'` - run only "smoke" tests;
+* `tagFilter: '@smoke and not @production'` - run only "smoke" tests that are not tagged as "production";
+* `tagFilter: '(@smoke or @fast) and @v2'` - run "v2" tests that are tagged as "smoke", "fast" or both.
+
 
 ## property: TestConfig.testDir
 * since: v1.10
@@ -757,19 +507,7 @@ Directory that will be recursively scanned for test files. Defaults to the direc
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  testDir: './tests/playwright',
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -787,19 +525,7 @@ For example, `'**/test-assets/**'` will ignore any files in the `test-assets` di
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  testIgnore: '**/test-assets/**',
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -813,23 +539,11 @@ export default defineConfig({
 
 Only the files matching one of these patterns are executed as test files. Matching is performed against the absolute file path. Strings are treated as glob patterns.
 
-By default, Playwright Test looks for files matching `.*(test|spec)\.(js|ts|mjs)`.
+By default, Playwright looks for files matching the following glob pattern: `**/*.@(spec|test).?(c|m)[jt]s?(x)`. This means JavaScript or TypeScript files with `".test"` or `".spec"` suffix, for example `login-screen.wrong-credentials.spec.ts`.
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  testMatch: /.*\.e2e\.js/,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -847,19 +561,7 @@ This is a base timeout for all tests. In addition, each test can configure its o
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  timeout: 5 * 60 * 1000,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -880,19 +582,7 @@ Learn more about [snapshots](../test-snapshots.md).
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  updateSnapshots: 'missing',
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -908,21 +598,7 @@ Global options for all tests, for example [`property: TestOptions.browserName`].
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  use: {
-    browserName: 'chromium',
-  },
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
@@ -936,11 +612,13 @@ export default defineConfig({
 * since: v1.10
 - type: ?<[Object]|[Array]<[Object]>>
   - `command` <[string]> Shell command to start. For example `npm run start`..
-  - `port` ?<[int]> The port that your http server is expected to appear on. It does wait until it accepts connections. Exactly one of `port` or `url` is required.
-  - `url` ?<[string]> The url on your http server that is expected to return a 2xx, 3xx, 400, 401, 402, or 403 status code when the server is ready to accept connections. Exactly one of `port` or `url` is required.
+  - `port` ?<[int]> The port that your http server is expected to appear on. It does wait until it accepts connections. Either `port` or `url` should be specified.
+  - `url` ?<[string]> The url on your http server that is expected to return a 2xx, 3xx, 400, 401, 402, or 403 status code when the server is ready to accept connections. Redirects (3xx status codes) are being followed and the new location is checked. Either `port` or `url` should be specified.
   - `ignoreHTTPSErrors` ?<[boolean]> Whether to ignore HTTPS errors when fetching the `url`. Defaults to `false`.
   - `timeout` ?<[int]> How long to wait for the process to start up and be available in milliseconds. Defaults to 60000.
   - `reuseExistingServer` ?<[boolean]> If true, it will re-use an existing server on the `port` or `url` when available. If no server is running on that `port` or `url`, it will run the command to start a new server. If `false`, it will throw if an existing process is listening on the `port` or `url`. This should be commonly set to `!process.env.CI` to allow the local dev server when running tests locally.
+  - `stdout` ?<["pipe"|"ignore"]> If `"pipe"`, it will pipe the stdout of the command to the process stdout. If `"ignore"`, it will ignore the stdout of the command. Default to `"ignore"`.
+  - `stderr` ?<["pipe"|"ignore"]> Whether to pipe the stderr of the command to the process stderr or ignore it. Defaults to `"pipe"`.
   - `cwd` ?<[string]> Current working directory of the spawned process, defaults to the directory of the configuration file.
   - `env` ?<[Object]<[string], [string]>> Environment variables to set for the command, `process.env` by default.
 
@@ -960,31 +638,12 @@ It is also recommended to specify [`property: TestOptions.baseURL`] in the confi
 
 **Usage**
 
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
   webServer: {
     command: 'npm run start',
-    port: 3000,
-    timeout: 120 * 1000,
-    reuseExistingServer: !process.env.CI,
-  },
-  use: {
-    baseURL: 'http://localhost:3000/',
-  },
-});
-```
-
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  webServer: {
-    command: 'npm run start',
-    port: 3000,
+    url: 'http://127.0.0.1:3000',
     timeout: 120 * 1000,
     reuseExistingServer: !process.env.CI,
   },
@@ -996,19 +655,8 @@ module.exports = defineConfig({
 
 Now you can use a relative path when navigating the page:
 
-```js tab=js-ts
-// test.spec.ts
+```js title="test.spec.ts"
 import { test } from '@playwright/test';
-
-test('test', async ({ page }) => {
-  // This will result in http://localhost:3000/foo
-  await page.goto('/foo');
-});
-```
-
-```js tab=js-js
-// test.spec.js
-const { test } = require('@playwright/test');
 
 test('test', async ({ page }) => {
   // This will result in http://localhost:3000/foo
@@ -1018,52 +666,25 @@ test('test', async ({ page }) => {
 
 Multiple web servers (or background processes) can be launched:
 
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
   webServer: [
     {
       command: 'npm run start',
-      port: 3000,
+      url: 'http://127.0.0.1:3000',
       timeout: 120 * 1000,
       reuseExistingServer: !process.env.CI,
     },
     {
       command: 'npm run backend',
-      port: 3333,
+      url: 'http://127.0.0.1:3333',
       timeout: 120 * 1000,
       reuseExistingServer: !process.env.CI,
     }
   ],
   use: {
-    baseURL: 'http://localhost:3000/',
-  },
-});
-```
-
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  webServer: [
-    {
-      command: 'npm run start',
-      port: 3000,
-      timeout: 120 * 1000,
-      reuseExistingServer: !process.env.CI,
-    },
-    {
-      command: 'npm run backend',
-      port: 3333,
-      timeout: 120 * 1000,
-      reuseExistingServer: !process.env.CI,
-    }
-  ],
-  use: {
-    baseURL: 'http://localhost:3000/',
+    baseURL: 'http://127.0.0.1:3000',
   },
 });
 ```
@@ -1080,19 +701,7 @@ Defaults to half of the number of logical CPU cores. Learn more about [paralleli
 
 **Usage**
 
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-
-module.exports = defineConfig({
-  workers: 3,
-});
-```
-
-```js tab=js-ts
-// playwright.config.ts
+```js title="playwright.config.ts"
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({

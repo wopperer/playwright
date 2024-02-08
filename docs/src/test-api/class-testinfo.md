@@ -2,18 +2,9 @@
 * since: v1.10
 * langs: js
 
-`TestInfo` contains information about currently running test. It is available to any test function, [`method: Test.beforeEach`] and [`method: Test.afterEach`] hooks and test-scoped fixtures. `TestInfo` provides utilities to control test execution: attach files, update test timeout, determine which test is currently running and whether it was retried, etc.
+`TestInfo` contains information about currently running test. It is available to test functions, [`method: Test.beforeEach`], [`method: Test.afterEach`], [`method: Test.beforeAll`] and [`method: Test.afterAll`] hooks, and test-scoped fixtures. `TestInfo` provides utilities to control test execution: attach files, update test timeout, determine which test is currently running and whether it was retried, etc.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test('basic test', async ({ page }, testInfo) => {
-  expect(testInfo.title).toBe('basic test');
-  await page.screenshot(testInfo.outputPath('screenshot.png'));
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('basic test', async ({ page }, testInfo) => {
@@ -29,7 +20,7 @@ test('basic test', async ({ page }, testInfo) => {
   - `type` <[string]> Annotation type, for example `'skip'` or `'fail'`.
   - `description` ?<[string]> Optional description.
 
-The list of annotations applicable to the current test. Includes annotations from the test, annotations from all [`method: Test.describe#1`] groups the test belongs to and file-level annotations for the test file.
+The list of annotations applicable to the current test. Includes annotations from the test, annotations from all [`method: Test.describe`] groups the test belongs to and file-level annotations for the test file.
 
 Learn more about [test annotations](../test-annotations.md).
 
@@ -52,17 +43,7 @@ Attach a value or a file from disk to the current test. Some reporters show test
 
 For example, you can attach a screenshot to the test:
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test('basic test', async ({ page }, testInfo) => {
-  await page.goto('https://playwright.dev');
-  const screenshot = await page.screenshot();
-  await testInfo.attach('screenshot', { body: screenshot, contentType: 'image/png' });
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test('basic test', async ({ page }, testInfo) => {
@@ -74,21 +55,11 @@ test('basic test', async ({ page }, testInfo) => {
 
 Or you can attach files returned by your APIs:
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test('basic test', async ({}, testInfo) => {
-  const { download } = require('./my-custom-helpers');
-  const tmpPath = await download('a');
-  await testInfo.attach('downloaded', { path: tmpPath });
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
+import { download } from './my-custom-helpers';
 
 test('basic test', async ({}, testInfo) => {
-  const { download } = require('./my-custom-helpers');
   const tmpPath = await download('a');
   await testInfo.attach('downloaded', { path: tmpPath });
 });
@@ -166,21 +137,12 @@ Errors thrown during test execution, if any.
 - type: <[TestStatus]<"passed"|"failed"|"timedOut"|"skipped"|"interrupted">>
 
 Expected status for the currently running test. This is usually `'passed'`, except for a few cases:
-* `'skipped'` for skipped tests, e.g. with [`method: Test.skip#2`];
-* `'failed'` for tests marked as failed with [`method: Test.fail#1`].
+* `'skipped'` for skipped tests, e.g. with [`method: Test.skip`];
+* `'failed'` for tests marked as failed with [`method: Test.fail`].
 
 Expected status is usually compared with the actual [`property: TestInfo.status`]:
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.afterEach(async ({}, testInfo) => {
-  if (testInfo.status !== testInfo.expectedStatus)
-    console.log(`${testInfo.title} did not run as expected!`);
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.afterEach(async ({}, testInfo) => {
@@ -192,12 +154,12 @@ test.afterEach(async ({}, testInfo) => {
 ## method: TestInfo.fail#1
 * since: v1.10
 
-Marks the currently running test as "should fail". Playwright Test runs this test and ensures that it is actually failing. This is useful for documentation purposes to acknowledge that some functionality is broken until it is fixed. This is similar to [`method: Test.fail#1`].
+Marks the currently running test as "should fail". Playwright Test runs this test and ensures that it is actually failing. This is useful for documentation purposes to acknowledge that some functionality is broken until it is fixed. This is similar to [`method: Test.fail`].
 
 ## method: TestInfo.fail#2
 * since: v1.10
 
-Conditionally mark the currently running test as "should fail" with an optional description. This is similar to [`method: Test.fail#2`].
+Conditionally mark the currently running test as "should fail" with an optional description. This is similar to [`method: Test.fail`].
 
 ### param: TestInfo.fail#2.condition
 * since: v1.10
@@ -222,12 +184,12 @@ Absolute path to a file where the currently running test is declared.
 ## method: TestInfo.fixme#1
 * since: v1.10
 
-Mark a test as "fixme", with the intention to fix it. Test is immediately aborted. This is similar to [`method: Test.fixme#2`].
+Mark a test as "fixme", with the intention to fix it. Test is immediately aborted. This is similar to [`method: Test.fixme`].
 
 ## method: TestInfo.fixme#2
 * since: v1.10
 
-Conditionally mark the currently running test as "fixme" with an optional description. This is similar to [`method: Test.fixme#3`].
+Conditionally mark the currently running test as "fixme" with an optional description. This is similar to [`method: Test.fixme`].
 
 ### param: TestInfo.fixme#2.condition
 * since: v1.10
@@ -247,6 +209,12 @@ Optional description that will be reflected in a test report.
 - type: <[function]>
 
 Test function as passed to `test(title, testFunction)`.
+
+## property: TestInfo.testId
+* since: v1.32
+- type: <[string]>
+
+Test id matching the test case id in the reporter API.
 
 ## property: TestInfo.line
 * since: v1.10
@@ -274,17 +242,7 @@ Absolute path to the output directory for this specific test run. Each test run 
 
 Returns a path inside the [`property: TestInfo.outputDir`] where the test can safely put a temporary file. Guarantees that tests running in parallel will not interfere with each other.
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-const fs = require('fs');
-
-test('example test', async ({}, testInfo) => {
-  const file = testInfo.outputPath('dir', 'temporary-file.txt');
-  await fs.promises.writeFile(file, 'Put some data to the dir/temporary-file.txt', 'utf8');
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 
@@ -330,24 +288,7 @@ Specifies a unique repeat index when running in "repeat each" mode. This mode is
 
 Specifies the retry number when the test is retried after a failure. The first test run has [`property: TestInfo.retry`] equal to zero, the first retry has it equal to one, and so on. Learn more about [retries](../test-retries.md#retries).
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.beforeEach(async ({}, testInfo) => {
-  // You can access testInfo.retry in any hook or fixture.
-  if (testInfo.retry > 0)
-    console.log(`Retrying!`);
-});
-
-test('my test', async ({ page }, testInfo) => {
-  // Here we clear some server-side state when retrying.
-  if (testInfo.retry)
-    await cleanSomeCachesOnTheServer();
-  // ...
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({}, testInfo) => {
@@ -371,16 +312,7 @@ Changes the timeout for the currently running test. Zero means no timeout. Learn
 
 Timeout is usually specified in the [configuration file](../test-configuration.md), but it could be useful to change the timeout in certain scenarios:
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.beforeEach(async ({ page }, testInfo) => {
-  // Extend timeout for all tests running this hook by 30 seconds.
-  testInfo.setTimeout(testInfo.timeout + 30000);
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ page }, testInfo) => {
@@ -398,12 +330,12 @@ Timeout in milliseconds.
 ## method: TestInfo.skip#1
 * since: v1.10
 
-Unconditionally skip the currently running test. Test is immediately aborted. This is similar to [`method: Test.skip#2`].
+Unconditionally skip the currently running test. Test is immediately aborted. This is similar to [`method: Test.skip`].
 
 ## method: TestInfo.skip#2
 * since: v1.10
 
-Conditionally skips the currently running test with an optional description. This is similar to [`method: Test.skip#3`].
+Conditionally skips the currently running test with an optional description. This is similar to [`method: Test.skip`].
 
 ### param: TestInfo.skip#2.condition
 * since: v1.10
@@ -421,12 +353,12 @@ Optional description that will be reflected in a test report.
 ## method: TestInfo.slow#1
 * since: v1.10
 
-Marks the currently running test as "slow", giving it triple the default timeout. This is similar to [`method: Test.slow#1`].
+Marks the currently running test as "slow", giving it triple the default timeout. This is similar to [`method: Test.slow`].
 
 ## method: TestInfo.slow#2
 * since: v1.10
 
-Conditionally mark the currently running test as "slow" with an optional description, giving it triple the default timeout. This is similar to [`method: Test.slow#2`].
+Conditionally mark the currently running test as "slow" with an optional description, giving it triple the default timeout. This is similar to [`method: Test.slow`].
 
 ### param: TestInfo.slow#2.condition
 * since: v1.10
@@ -475,16 +407,7 @@ Actual status for the currently running test. Available after the test has finis
 
 Status is usually compared with the [`property: TestInfo.expectedStatus`]:
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.afterEach(async ({}, testInfo) => {
-  if (testInfo.status !== testInfo.expectedStatus)
-    console.log(`${testInfo.title} did not run as expected!`);
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.afterEach(async ({}, testInfo) => {
@@ -492,18 +415,6 @@ test.afterEach(async ({}, testInfo) => {
     console.log(`${testInfo.title} did not run as expected!`);
 });
 ```
-
-## property: TestInfo.stderr
-* since: v1.10
-- type: <[Array]<[string]|[Buffer]>>
-
-Output written to `process.stderr` or `console.error` during the test execution.
-
-## property: TestInfo.stdout
-* since: v1.10
-- type: <[Array]<[string]|[Buffer]>>
-
-Output written to `process.stdout` or `console.log` during the test execution.
 
 ## property: TestInfo.timeout
 * since: v1.10
@@ -513,16 +424,7 @@ Timeout in milliseconds for the currently running test. Zero means no timeout. L
 
 Timeout is usually specified in the [configuration file](../test-configuration.md)
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.beforeEach(async ({ page }, testInfo) => {
-  // Extend timeout for all tests running this hook by 30 seconds.
-  testInfo.setTimeout(testInfo.timeout + 30000);
-});
-```
-
-```js tab=js-ts
+```js
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ page }, testInfo) => {

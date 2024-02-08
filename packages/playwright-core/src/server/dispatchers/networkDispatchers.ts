@@ -27,8 +27,9 @@ import type { PageDispatcher } from './pageDispatcher';
 import { FrameDispatcher } from './frameDispatcher';
 import { WorkerDispatcher } from './pageDispatcher';
 
-export class RequestDispatcher extends Dispatcher<Request, channels.RequestChannel, BrowserContextDispatcher> implements channels.RequestChannel {
+export class RequestDispatcher extends Dispatcher<Request, channels.RequestChannel, BrowserContextDispatcher | PageDispatcher | FrameDispatcher> implements channels.RequestChannel {
   _type_Request: boolean;
+  private _browserContextDispatcher: BrowserContextDispatcher;
 
   static from(scope: BrowserContextDispatcher, request: Request): RequestDispatcher {
     const result = existingDispatcher<RequestDispatcher>(request);
@@ -41,8 +42,13 @@ export class RequestDispatcher extends Dispatcher<Request, channels.RequestChann
 
   private constructor(scope: BrowserContextDispatcher, request: Request) {
     const postData = request.postDataBuffer();
-    super(scope, request, 'Request', {
-      frame: FrameDispatcher.fromNullable(scope as any as PageDispatcher, request.frame()),
+    // Always try to attach request to the page, if not, frame.
+    const frame = request.frame();
+    const page = request.frame()?._page;
+    const pageDispatcher = page ? existingDispatcher<PageDispatcher>(page) : null;
+    const frameDispatcher = frame ? FrameDispatcher.from(scope, frame) : null;
+    super(pageDispatcher || frameDispatcher || scope, request, 'Request', {
+      frame: FrameDispatcher.fromNullable(scope, request.frame()),
       serviceWorker: WorkerDispatcher.fromNullable(scope, request.serviceWorker()),
       url: request.url(),
       resourceType: request.resourceType(),
@@ -53,6 +59,7 @@ export class RequestDispatcher extends Dispatcher<Request, channels.RequestChann
       redirectedFrom: RequestDispatcher.fromNullable(scope, request.redirectedFrom()),
     });
     this._type_Request = true;
+    this._browserContextDispatcher = scope;
   }
 
   async rawRequestHeaders(params?: channels.RequestRawRequestHeadersParams): Promise<channels.RequestRawRequestHeadersResult> {
@@ -60,26 +67,27 @@ export class RequestDispatcher extends Dispatcher<Request, channels.RequestChann
   }
 
   async response(): Promise<channels.RequestResponseResult> {
-    return { response: ResponseDispatcher.fromNullable(this.parentScope(), await this._object.response()) };
+    return { response: ResponseDispatcher.fromNullable(this._browserContextDispatcher, await this._object.response()) };
   }
 }
 
-export class ResponseDispatcher extends Dispatcher<Response, channels.ResponseChannel, BrowserContextDispatcher> implements channels.ResponseChannel {
+export class ResponseDispatcher extends Dispatcher<Response, channels.ResponseChannel, RequestDispatcher> implements channels.ResponseChannel {
   _type_Response = true;
 
   static from(scope: BrowserContextDispatcher, response: Response): ResponseDispatcher {
     const result = existingDispatcher<ResponseDispatcher>(response);
-    return result || new ResponseDispatcher(scope, response);
+    const requestDispatcher = RequestDispatcher.from(scope, response.request());
+    return result || new ResponseDispatcher(requestDispatcher, response);
   }
 
   static fromNullable(scope: BrowserContextDispatcher, response: Response | null): ResponseDispatcher | undefined {
     return response ? ResponseDispatcher.from(scope, response) : undefined;
   }
 
-  private constructor(scope: BrowserContextDispatcher, response: Response) {
+  private constructor(scope: RequestDispatcher, response: Response) {
     super(scope, response, 'Response', {
       // TODO: responses in popups can point to non-reported requests.
-      request: RequestDispatcher.from(scope, response.request()),
+      request: scope,
       url: response.url(),
       status: response.status(),
       statusText: response.statusText(),
@@ -120,31 +128,26 @@ export class RouteDispatcher extends Dispatcher<Route, channels.RouteChannel, Re
 
   private constructor(scope: RequestDispatcher, route: Route) {
     super(scope, route, 'Route', {
-      // Context route can point to a non-reported request.
+      // Context route can point to a non-reported request, so we send the request in the initializer.
       request: scope
     });
   }
 
   async continue(params: channels.RouteContinueParams, metadata: CallMetadata): Promise<channels.RouteContinueResult> {
-    // Used to discriminate between continue in tracing.
-    metadata.params.requestUrl = this._object.request().url();
     await this._object.continue({
       url: params.url,
       method: params.method,
       headers: params.headers,
       postData: params.postData,
+      isFallback: params.isFallback,
     });
   }
 
   async fulfill(params: channels.RouteFulfillParams, metadata: CallMetadata): Promise<void> {
-    // Used to discriminate between fulfills in tracing.
-    metadata.params.requestUrl = this._object.request().url();
     await this._object.fulfill(params);
   }
 
   async abort(params: channels.RouteAbortParams, metadata: CallMetadata): Promise<void> {
-    // Used to discriminate between abort in tracing.
-    metadata.params.requestUrl = this._object.request().url();
     await this._object.abort(params.errorCode || 'failed');
   }
 
@@ -191,12 +194,14 @@ export class APIRequestContextDispatcher extends Dispatcher<APIRequestContext, c
     this.adopt(tracing);
   }
 
-  async storageState(params?: channels.APIRequestContextStorageStateParams): Promise<channels.APIRequestContextStorageStateResult> {
+  async storageState(): Promise<channels.APIRequestContextStorageStateResult> {
     return this._object.storageState();
   }
 
-  async dispose(params?: channels.APIRequestContextDisposeParams): Promise<void> {
+  async dispose(_: channels.APIRequestContextDisposeParams, metadata: CallMetadata): Promise<void> {
+    metadata.potentiallyClosesScope = true;
     await this._object.dispose();
+    this._dispose();
   }
 
   async fetch(params: channels.APIRequestContextFetchParams, metadata: CallMetadata): Promise<channels.APIRequestContextFetchResult> {
@@ -212,16 +217,16 @@ export class APIRequestContextDispatcher extends Dispatcher<APIRequestContext, c
     };
   }
 
-  async fetchResponseBody(params: channels.APIRequestContextFetchResponseBodyParams, metadata?: channels.Metadata): Promise<channels.APIRequestContextFetchResponseBodyResult> {
+  async fetchResponseBody(params: channels.APIRequestContextFetchResponseBodyParams): Promise<channels.APIRequestContextFetchResponseBodyResult> {
     return { binary: this._object.fetchResponses.get(params.fetchUid) };
   }
 
-  async fetchLog(params: channels.APIRequestContextFetchLogParams, metadata?: channels.Metadata): Promise<channels.APIRequestContextFetchLogResult> {
+  async fetchLog(params: channels.APIRequestContextFetchLogParams): Promise<channels.APIRequestContextFetchLogResult> {
     const log = this._object.fetchLog.get(params.fetchUid) || [];
     return { log };
   }
 
-  async disposeAPIResponse(params: channels.APIRequestContextDisposeAPIResponseParams, metadata?: channels.Metadata): Promise<void> {
+  async disposeAPIResponse(params: channels.APIRequestContextDisposeAPIResponseParams): Promise<void> {
     this._object.disposeResponse(params.fetchUid);
   }
 }

@@ -61,7 +61,7 @@ it('should not work for a redirect and interception', async ({ page, server }) =
   const requests = [];
   await page.route('**', route => {
     requests.push(route.request());
-    route.continue();
+    void route.continue();
   });
   await page.goto(server.PREFIX + '/foo.html');
 
@@ -180,7 +180,7 @@ it('should not get preflight CORS requests when intercepting', async ({ page, se
     const routed = [];
     await page.route('**/something', route => {
       routed.push(route.request().method());
-      route.continue();
+      void route.continue();
     });
 
     const text = await page.evaluate(async url => {
@@ -251,7 +251,7 @@ it('should override post data content type', async ({ page, server }) => {
   await page.route('**/post', (route, request) => {
     const headers = request.headers();
     headers['content-type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
-    route.continue({
+    void route.continue({
       headers,
       postData: request.postData()
     });
@@ -424,4 +424,59 @@ it('should report all cookies in one header', async ({ page, server, isElectron,
   const response = await page.goto(server.EMPTY_PAGE);
   const cookie = (await response.request().allHeaders())['cookie'];
   expect(cookie).toBe('myCookie=myValue; myOtherCookie=myOtherValue');
+});
+
+it('should not allow to access frame on popup main request', async ({ page, server }) => {
+  await page.setContent(`<a target=_blank href="${server.EMPTY_PAGE}">click me</a>`);
+  const requestPromise = page.context().waitForEvent('request');
+  const popupPromise = page.context().waitForEvent('page');
+  const clicked = page.getByText('click me').click();
+  const request = await requestPromise;
+
+  expect(request.isNavigationRequest()).toBe(true);
+
+  let error;
+  try {
+    request.frame();
+  } catch (e) {
+    error = e;
+  }
+  expect(error.message).toContain('Frame for this navigation request is not available');
+
+  const response = await request.response();
+  await response.finished();
+  await popupPromise;
+  await clicked;
+});
+
+it('page.reload return 304 status code', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/28779' });
+  it.fixme(browserName === 'firefox', 'Does not send second request');
+  let requestNumber = 0;
+  server.setRoute('/test.html', (req, res) => {
+    ++requestNumber;
+    const headers = {
+      'cf-cache-status': 'DYNAMIC',
+      'Content-Type': 'text/html;charset=UTF-8',
+      'Last-Modified': 'Fri, 05 Jan 2024 01:56:20 GMT',
+      'Vary': 'Access-Control-Request-Headers',
+    };
+    if (requestNumber === 1)
+      res.writeHead(200, headers);
+    else
+      res.writeHead(304, 'Not Modified', headers);
+    res.write(`<div>Test</div>`);
+    res.end();
+  });
+  const response1 = await page.goto(server.PREFIX + '/test.html');
+  expect(response1.status()).toBe(200);
+  const response2 = await page.reload();
+  expect(requestNumber).toBe(2);
+  if (browserName === 'chromium') {
+    expect([200, 304].includes(response2.status()), 'actual status: ' + response2.status());
+    expect(['OK', 'Not Modified'].includes(response2.statusText()), 'actual statusText: ' + response2.statusText());
+  } else {
+    expect(response2.status()).toBe(304);
+    expect(response2.statusText()).toBe('Not Modified');
+  }
 });

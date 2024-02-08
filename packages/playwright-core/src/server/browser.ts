@@ -21,12 +21,10 @@ import { Page } from './page';
 import { Download } from './download';
 import type { ProxySettings } from './types';
 import type { ChildProcess } from 'child_process';
-import type { RecentLogsCollector } from '../common/debugLogger';
+import type { RecentLogsCollector } from '../utils/debugLogger';
 import type { CallMetadata } from './instrumentation';
 import { SdkObject } from './instrumentation';
 import { Artifact } from './artifact';
-import type { Selectors } from './selectors';
-import type { Language } from './isomorphic/locatorGenerators';
 
 export interface BrowserProcess {
   onclose?: ((exitCode: number | null, signal: string | null) => void);
@@ -35,14 +33,7 @@ export interface BrowserProcess {
   close(): Promise<void>;
 }
 
-export type PlaywrightOptions = {
-  rootSdkObject: SdkObject;
-  selectors: Selectors;
-  socksProxyPort?: number;
-  sdkLanguage: Language,
-};
-
-export type BrowserOptions = PlaywrightOptions & {
+export type BrowserOptions = {
   name: string,
   isChromium: boolean,
   channel?: string,
@@ -73,9 +64,11 @@ export abstract class Browser extends SdkObject {
   private _startedClosing = false;
   readonly _idToVideo = new Map<string, { context: BrowserContext, artifact: Artifact }>();
   private _contextForReuse: { context: BrowserContext, hash: string } | undefined;
+  _closeReason: string | undefined;
+  _isCollocatedWithServer: boolean = true;
 
-  constructor(options: BrowserOptions) {
-    super(options.rootSdkObject, 'browser');
+  constructor(parent: SdkObject, options: BrowserOptions) {
+    super(parent, 'browser');
     this.attribution.browser = this;
     this.options = options;
     this.instrumentation.onBrowserOpen(this);
@@ -97,18 +90,18 @@ export abstract class Browser extends SdkObject {
 
   async newContextForReuse(params: channels.BrowserNewContextForReuseParams, metadata: CallMetadata): Promise<{ context: BrowserContext, needsReset: boolean }> {
     const hash = BrowserContext.reusableContextHash(params);
-    for (const context of this.contexts()) {
-      if (context !== this._contextForReuse?.context)
-        await context.close(metadata);
-    }
     if (!this._contextForReuse || hash !== this._contextForReuse.hash || !this._contextForReuse.context.canResetForReuse()) {
       if (this._contextForReuse)
-        await this._contextForReuse.context.close(metadata);
+        await this._contextForReuse.context.close({ reason: 'Context reused' });
       this._contextForReuse = { context: await this.newContext(metadata, params), hash };
       return { context: this._contextForReuse.context, needsReset: false };
     }
-    await this._contextForReuse.context.stopPendingOperations();
+    await this._contextForReuse.context.stopPendingOperations('Context recreated');
     return { context: this._contextForReuse.context, needsReset: true };
+  }
+
+  async stopPendingOperations(reason: string) {
+    await this._contextForReuse?.context?.stopPendingOperations(reason);
   }
 
   _downloadCreated(page: Page, uuid: string, url: string, suggestedFilename?: string) {
@@ -127,7 +120,7 @@ export abstract class Browser extends SdkObject {
     const download = this._downloads.get(uuid);
     if (!download)
       return;
-    download.artifact.reportFinished(error);
+    download.artifact.reportFinished(error ? new Error(error) : undefined);
     this._downloads.delete(uuid);
   }
 
@@ -158,8 +151,10 @@ export abstract class Browser extends SdkObject {
     this.instrumentation.onBrowserClose(this);
   }
 
-  async close() {
+  async close(options: { reason?: string }) {
     if (!this._startedClosing) {
+      if (options.reason)
+        this._closeReason = options.reason;
       this._startedClosing = true;
       await this.options.browserProcess.close();
     }

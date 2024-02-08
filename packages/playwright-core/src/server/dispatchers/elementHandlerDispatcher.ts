@@ -23,10 +23,8 @@ import { JSHandleDispatcher, serializeResult, parseArgument } from './jsHandleDi
 import type { JSHandleDispatcherParentScope } from './jsHandleDispatcher';
 import { FrameDispatcher } from './frameDispatcher';
 import type { CallMetadata } from '../instrumentation';
-import type { WritableStreamDispatcher } from './writableStreamDispatcher';
-import { assert } from '../../utils';
-import path from 'path';
-import type { PageDispatcher } from './pageDispatcher';
+import { BrowserContextDispatcher } from './browserContextDispatcher';
+import { PageDispatcher, WorkerDispatcher } from './pageDispatcher';
 
 export class ElementHandleDispatcher extends JSHandleDispatcher implements channels.ElementHandleChannel {
   _type_ElementHandle = true;
@@ -57,63 +55,63 @@ export class ElementHandleDispatcher extends JSHandleDispatcher implements chann
 
   async ownerFrame(params: channels.ElementHandleOwnerFrameParams, metadata: CallMetadata): Promise<channels.ElementHandleOwnerFrameResult> {
     const frame = await this._elementHandle.ownerFrame();
-    return { frame: frame ? FrameDispatcher.from(this.parentScope() as PageDispatcher, frame) : undefined };
+    return { frame: frame ? FrameDispatcher.from(this._browserContextDispatcher(), frame) : undefined };
   }
 
   async contentFrame(params: channels.ElementHandleContentFrameParams, metadata: CallMetadata): Promise<channels.ElementHandleContentFrameResult> {
     const frame = await this._elementHandle.contentFrame();
-    return { frame: frame ? FrameDispatcher.from(this.parentScope() as PageDispatcher, frame) : undefined };
+    return { frame: frame ? FrameDispatcher.from(this._browserContextDispatcher(), frame) : undefined };
   }
 
   async getAttribute(params: channels.ElementHandleGetAttributeParams, metadata: CallMetadata): Promise<channels.ElementHandleGetAttributeResult> {
-    const value = await this._elementHandle.getAttribute(params.name);
+    const value = await this._elementHandle.getAttribute(metadata, params.name);
     return { value: value === null ? undefined : value };
   }
 
   async inputValue(params: channels.ElementHandleInputValueParams, metadata: CallMetadata): Promise<channels.ElementHandleInputValueResult> {
-    const value = await this._elementHandle.inputValue();
+    const value = await this._elementHandle.inputValue(metadata);
     return { value };
   }
 
   async textContent(params: channels.ElementHandleTextContentParams, metadata: CallMetadata): Promise<channels.ElementHandleTextContentResult> {
-    const value = await this._elementHandle.textContent();
+    const value = await this._elementHandle.textContent(metadata);
     return { value: value === null ? undefined : value };
   }
 
   async innerText(params: channels.ElementHandleInnerTextParams, metadata: CallMetadata): Promise<channels.ElementHandleInnerTextResult> {
-    return { value: await this._elementHandle.innerText() };
+    return { value: await this._elementHandle.innerText(metadata) };
   }
 
   async innerHTML(params: channels.ElementHandleInnerHTMLParams, metadata: CallMetadata): Promise<channels.ElementHandleInnerHTMLResult> {
-    return { value: await this._elementHandle.innerHTML() };
+    return { value: await this._elementHandle.innerHTML(metadata) };
   }
 
   async isChecked(params: channels.ElementHandleIsCheckedParams, metadata: CallMetadata): Promise<channels.ElementHandleIsCheckedResult> {
-    return { value: await this._elementHandle.isChecked() };
+    return { value: await this._elementHandle.isChecked(metadata) };
   }
 
   async isDisabled(params: channels.ElementHandleIsDisabledParams, metadata: CallMetadata): Promise<channels.ElementHandleIsDisabledResult> {
-    return { value: await this._elementHandle.isDisabled() };
+    return { value: await this._elementHandle.isDisabled(metadata) };
   }
 
   async isEditable(params: channels.ElementHandleIsEditableParams, metadata: CallMetadata): Promise<channels.ElementHandleIsEditableResult> {
-    return { value: await this._elementHandle.isEditable() };
+    return { value: await this._elementHandle.isEditable(metadata) };
   }
 
   async isEnabled(params: channels.ElementHandleIsEnabledParams, metadata: CallMetadata): Promise<channels.ElementHandleIsEnabledResult> {
-    return { value: await this._elementHandle.isEnabled() };
+    return { value: await this._elementHandle.isEnabled(metadata) };
   }
 
   async isHidden(params: channels.ElementHandleIsHiddenParams, metadata: CallMetadata): Promise<channels.ElementHandleIsHiddenResult> {
-    return { value: await this._elementHandle.isHidden() };
+    return { value: await this._elementHandle.isHidden(metadata) };
   }
 
   async isVisible(params: channels.ElementHandleIsVisibleParams, metadata: CallMetadata): Promise<channels.ElementHandleIsVisibleResult> {
-    return { value: await this._elementHandle.isVisible() };
+    return { value: await this._elementHandle.isVisible(metadata) };
   }
 
   async dispatchEvent(params: channels.ElementHandleDispatchEventParams, metadata: CallMetadata): Promise<void> {
-    await this._elementHandle.dispatchEvent(params.type, parseArgument(params.eventInit));
+    await this._elementHandle.dispatchEvent(metadata, params.type, parseArgument(params.eventInit));
   }
 
   async scrollIntoViewIfNeeded(params: channels.ElementHandleScrollIntoViewIfNeededParams, metadata: CallMetadata): Promise<void> {
@@ -150,19 +148,7 @@ export class ElementHandleDispatcher extends JSHandleDispatcher implements chann
   }
 
   async setInputFiles(params: channels.ElementHandleSetInputFilesParams, metadata: CallMetadata): Promise<void> {
-    return await this._elementHandle.setInputFiles(metadata, { files: params.files }, params);
-  }
-
-  async setInputFilePaths(params: channels.ElementHandleSetInputFilePathsParams, metadata: CallMetadata): Promise<void> {
-    let { localPaths } = params;
-    if (!localPaths) {
-      if (!params.streams)
-        throw new Error('Neither localPaths nor streams is specified');
-      localPaths = params.streams.map(c => (c as WritableStreamDispatcher).path());
-    }
-    for (const p of localPaths)
-      assert(path.isAbsolute(p) && path.resolve(p) === p, 'Paths provided to localPaths must be absolute and fully resolved.');
-    return await this._elementHandle.setInputFiles(metadata, { localPaths }, params);
+    return await this._elementHandle.setInputFiles(metadata, params);
   }
 
   async focus(params: channels.ElementHandleFocusParams, metadata: CallMetadata): Promise<void> {
@@ -209,11 +195,11 @@ export class ElementHandleDispatcher extends JSHandleDispatcher implements chann
   }
 
   async evalOnSelector(params: channels.ElementHandleEvalOnSelectorParams, metadata: CallMetadata): Promise<channels.ElementHandleEvalOnSelectorResult> {
-    return { value: serializeResult(await this._elementHandle.evalOnSelectorAndWaitForSignals(params.selector, !!params.strict, params.expression, params.isFunction, parseArgument(params.arg))) };
+    return { value: serializeResult(await this._elementHandle.evalOnSelector(params.selector, !!params.strict, params.expression, params.isFunction, parseArgument(params.arg))) };
   }
 
   async evalOnSelectorAll(params: channels.ElementHandleEvalOnSelectorAllParams, metadata: CallMetadata): Promise<channels.ElementHandleEvalOnSelectorAllResult> {
-    return { value: serializeResult(await this._elementHandle.evalOnSelectorAllAndWaitForSignals(params.selector, params.expression, params.isFunction, parseArgument(params.arg))) };
+    return { value: serializeResult(await this._elementHandle.evalOnSelectorAll(params.selector, params.expression, params.isFunction, parseArgument(params.arg))) };
   }
 
   async waitForElementState(params: channels.ElementHandleWaitForElementStateParams, metadata: CallMetadata): Promise<void> {
@@ -223,4 +209,20 @@ export class ElementHandleDispatcher extends JSHandleDispatcher implements chann
   async waitForSelector(params: channels.ElementHandleWaitForSelectorParams, metadata: CallMetadata): Promise<channels.ElementHandleWaitForSelectorResult> {
     return { element: ElementHandleDispatcher.fromNullable(this.parentScope(), await this._elementHandle.waitForSelector(metadata, params.selector, params)) };
   }
+
+  private _browserContextDispatcher(): BrowserContextDispatcher {
+    const scope = this.parentScope();
+    if (scope instanceof BrowserContextDispatcher)
+      return scope;
+    if (scope instanceof PageDispatcher)
+      return scope.parentScope();
+    if ((scope instanceof WorkerDispatcher) || (scope instanceof FrameDispatcher))  {
+      const parentScope = scope.parentScope();
+      if (parentScope instanceof BrowserContextDispatcher)
+        return parentScope;
+      return parentScope.parentScope();
+    }
+    throw new Error('ElementHandle belongs to unexpected scope');
+  }
+
 }

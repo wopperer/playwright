@@ -17,10 +17,9 @@
 import type { ByRoleOptions } from '../../utils/isomorphic/locatorUtils';
 import { getByAltTextSelector, getByLabelSelector, getByPlaceholderSelector, getByRoleSelector, getByTestIdSelector, getByTextSelector, getByTitleSelector } from '../../utils/isomorphic/locatorUtils';
 import { escapeForTextSelector } from '../../utils/isomorphic/stringUtils';
-import { asLocator } from '../isomorphic/locatorGenerators';
-import type { Language } from '../isomorphic/locatorGenerators';
-import { type InjectedScript } from './injectedScript';
-import { generateSelector } from './selectorGenerator';
+import { asLocator } from '../../utils/isomorphic/locatorGenerators';
+import type { Language } from '../../utils/isomorphic/locatorGenerators';
+import type { InjectedScript } from './injectedScript';
 
 const selectorSymbol = Symbol('selector');
 const injectedScriptSymbol = Symbol('injectedScript');
@@ -29,17 +28,21 @@ class Locator {
   element: Element | undefined;
   elements: Element[] | undefined;
 
-  constructor(injectedScript: InjectedScript, selector: string, options?: { hasText?: string | RegExp, has?: Locator }) {
+  constructor(injectedScript: InjectedScript, selector: string, options?: { hasText?: string | RegExp, hasNotText?: string | RegExp, has?: Locator, hasNot?: Locator }) {
     (this as any)[selectorSymbol] = selector;
     (this as any)[injectedScriptSymbol] = injectedScript;
     if (options?.hasText)
       selector += ` >> internal:has-text=${escapeForTextSelector(options.hasText, false)}`;
+    if (options?.hasNotText)
+      selector += ` >> internal:has-not-text=${escapeForTextSelector(options.hasNotText, false)}`;
     if (options?.has)
       selector += ` >> internal:has=` + JSON.stringify((options.has as any)[selectorSymbol]);
+    if (options?.hasNot)
+      selector += ` >> internal:has-not=` + JSON.stringify((options.hasNot as any)[selectorSymbol]);
     if (selector) {
       const parsed = injectedScript.parseSelector(selector);
-      this.element = injectedScript.querySelector(parsed, document, false);
-      this.elements = injectedScript.querySelectorAll(parsed, document);
+      this.element = injectedScript.querySelector(parsed, injectedScript.document, false);
+      this.elements = injectedScript.querySelectorAll(parsed, injectedScript.document);
     }
     const selectorBase = selector;
     const self = this as any;
@@ -57,6 +60,8 @@ class Locator {
     self.first = (): Locator => self.locator('nth=0');
     self.last = (): Locator => self.locator('nth=-1');
     self.nth = (index: number): Locator => self.locator(`nth=${index}`);
+    self.and = (locator: Locator): Locator => new Locator(injectedScript, selectorBase + ` >> internal:and=` + JSON.stringify((locator as any)[selectorSymbol]));
+    self.or = (locator: Locator): Locator => new Locator(injectedScript, selectorBase + ` >> internal:or=` + JSON.stringify((locator as any)[selectorSymbol]));
   }
 }
 
@@ -73,9 +78,9 @@ class ConsoleAPI {
 
   constructor(injectedScript: InjectedScript) {
     this._injectedScript = injectedScript;
-    if (window.playwright)
+    if (this._injectedScript.window.playwright)
       return;
-    window.playwright = {
+    this._injectedScript.window.playwright = {
       $: (selector: string, strict?: boolean) => this._querySelector(selector, !!strict),
       $$: (selector: string) => this._querySelectorAll(selector),
       inspect: (selector: string) => this._inspect(selector),
@@ -84,48 +89,50 @@ class ConsoleAPI {
       resume: () => this._resume(),
       ...new Locator(injectedScript, ''),
     };
-    delete window.playwright.filter;
-    delete window.playwright.first;
-    delete window.playwright.last;
-    delete window.playwright.nth;
+    delete this._injectedScript.window.playwright.filter;
+    delete this._injectedScript.window.playwright.first;
+    delete this._injectedScript.window.playwright.last;
+    delete this._injectedScript.window.playwright.nth;
+    delete this._injectedScript.window.playwright.and;
+    delete this._injectedScript.window.playwright.or;
   }
 
   private _querySelector(selector: string, strict: boolean): (Element | undefined) {
     if (typeof selector !== 'string')
       throw new Error(`Usage: playwright.query('Playwright >> selector').`);
     const parsed = this._injectedScript.parseSelector(selector);
-    return this._injectedScript.querySelector(parsed, document, strict);
+    return this._injectedScript.querySelector(parsed, this._injectedScript.document, strict);
   }
 
   private _querySelectorAll(selector: string): Element[] {
     if (typeof selector !== 'string')
       throw new Error(`Usage: playwright.$$('Playwright >> selector').`);
     const parsed = this._injectedScript.parseSelector(selector);
-    return this._injectedScript.querySelectorAll(parsed, document);
+    return this._injectedScript.querySelectorAll(parsed, this._injectedScript.document);
   }
 
   private _inspect(selector: string) {
     if (typeof selector !== 'string')
       throw new Error(`Usage: playwright.inspect('Playwright >> selector').`);
-    window.inspect(this._querySelector(selector, false));
+    this._injectedScript.window.inspect(this._querySelector(selector, false));
   }
 
   private _selector(element: Element) {
     if (!(element instanceof Element))
       throw new Error(`Usage: playwright.selector(element).`);
-    return generateSelector(this._injectedScript, element, this._injectedScript.testIdAttributeNameForStrictErrorAndConsoleCodegen()).selector;
+    return this._injectedScript.generateSelectorSimple(element);
   }
 
   private _generateLocator(element: Element, language?: Language) {
     if (!(element instanceof Element))
       throw new Error(`Usage: playwright.locator(element).`);
-    const selector = generateSelector(this._injectedScript, element, this._injectedScript.testIdAttributeNameForStrictErrorAndConsoleCodegen()).selector;
+    const selector = this._injectedScript.generateSelectorSimple(element);
     return asLocator(language || 'javascript', selector);
   }
 
   private _resume() {
-    window.__pw_resume().catch(() => {});
+    this._injectedScript.window.__pw_resume().catch(() => {});
   }
 }
 
-module.exports = ConsoleAPI;
+export default ConsoleAPI;

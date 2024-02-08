@@ -14,25 +14,29 @@
  * limitations under the License.
  */
 
-import type { Language } from '../../playwright-core/src/server/isomorphic/locatorGenerators';
+import type { Language } from '../../playwright-core/src/utils/isomorphic/locatorGenerators';
 import type { ResourceSnapshot } from '@trace/snapshot';
 import type * as trace from '@trace/trace';
 
 export type ContextEntry = {
+  isPrimary: boolean;
   traceUrl: string;
   startTime: number;
   endTime: number;
   browserName: string;
+  channel?: string;
   platform?: string;
   wallTime?: number;
   sdkLanguage?: Language;
+  testIdAttributeName?: string;
   title?: string;
   options: trace.BrowserContextEventOptions;
   pages: PageEntry[];
   resources: ResourceSnapshot[];
-  actions: trace.ActionTraceEvent[];
-  events: trace.ActionTraceEvent[];
-  objects: { [key: string]: any };
+  actions: ActionEntry[];
+  events: (trace.EventTraceEvent | trace.ConsoleMessageTraceEvent)[];
+  stdio: trace.StdioTraceEvent[];
+  errors: trace.ErrorTraceEvent[];
   hasSource: boolean;
 };
 
@@ -44,8 +48,14 @@ export type PageEntry = {
     height: number,
   }[];
 };
+
+export type ActionEntry = trace.ActionTraceEvent & {
+  log: { time: number, message: string }[];
+};
+
 export function createEmptyContext(): ContextEntry {
   return {
+    isPrimary: false,
     traceUrl: '',
     startTime: Number.MAX_SAFE_INTEGER,
     endTime: 0,
@@ -59,7 +69,8 @@ export function createEmptyContext(): ContextEntry {
     resources: [],
     actions: [],
     events: [],
-    objects: {},
+    errors: [],
+    stdio: [],
     hasSource: false
   };
 }

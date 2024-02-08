@@ -180,8 +180,7 @@ context cookies from the response. The method will automatically follow redirect
 ## async method: APIRequestContext.dispose
 * since: v1.16
 
-All responses returned by [`method: APIRequestContext.get`] and similar methods are stored in the memory, so that you can later call [`method: APIResponse.body`]. This method
-discards all stored responses, and makes [`method: APIResponse.body`] throw "Response disposed" error.
+All responses returned by [`method: APIRequestContext.get`] and similar methods are stored in the memory, so that you can later call [`method: APIResponse.body`].This method discards all its resources, calling any method on disposed [APIRequestContext] will throw an exception.
 
 ## async method: APIRequestContext.fetch
 * since: v1.16
@@ -379,12 +378,12 @@ api_request_context.get("https://example.com/api/getText", params=query_params)
 ```
 
 ```csharp
-var params = new Dictionary<string, object>()
+var queryParams = new Dictionary<string, object>()
 {
   { "isbn", "1234" },
   { "page", 23 },
-}
-await request.GetAsync("https://example.com/api/getText", new() { Params = params });
+};
+await request.GetAsync("https://example.com/api/getText", new() { Params = queryParams });
 ```
 
 ### param: APIRequestContext.get.url = %%-fetch-param-url-%%

@@ -22,64 +22,110 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const esbuild = require('esbuild');
 
+/**
+ * @type {[string, string, string, boolean][]}
+ */
 const injectedScripts = [
-  path.join(ROOT, 'packages', 'playwright-core', 'src', 'server', 'injected', 'utilityScript.ts'),
-  path.join(ROOT, 'packages', 'playwright-core', 'src', 'server', 'injected', 'injectedScript.ts'),
-  path.join(ROOT, 'packages', 'playwright-core', 'src', 'server', 'injected', 'consoleApi.ts'),
-  path.join(ROOT, 'packages', 'playwright-core', 'src', 'server', 'injected', 'recorder.ts'),
+  [
+    path.join(ROOT, 'packages', 'playwright-core', 'src', 'server', 'injected', 'utilityScript.ts'),
+    path.join(ROOT, 'packages', 'playwright-core', 'lib', 'server', 'injected', 'packed'),
+    path.join(ROOT, 'packages', 'playwright-core', 'src', 'generated'),
+    true,
+  ],
+  [
+    path.join(ROOT, 'packages', 'playwright-core', 'src', 'server', 'injected', 'injectedScript.ts'),
+    path.join(ROOT, 'packages', 'playwright-core', 'lib', 'server', 'injected', 'packed'),
+    path.join(ROOT, 'packages', 'playwright-core', 'src', 'generated'),
+    true,
+  ],
+  [
+    path.join(ROOT, 'packages', 'playwright-core', 'src', 'server', 'injected', 'consoleApi.ts'),
+    path.join(ROOT, 'packages', 'playwright-core', 'lib', 'server', 'injected', 'packed'),
+    path.join(ROOT, 'packages', 'playwright-core', 'src', 'generated'),
+    true,
+  ],
+  [
+    path.join(ROOT, 'packages', 'playwright-core', 'src', 'server', 'injected', 'recorder', 'recorder.ts'),
+    path.join(ROOT, 'packages', 'playwright-core', 'lib', 'server', 'injected', 'packed'),
+    path.join(ROOT, 'packages', 'playwright-core', 'src', 'generated'),
+    true,
+  ],
+  [
+    path.join(ROOT, 'packages', 'playwright-ct-core', 'src', 'injected', 'index.ts'),
+    path.join(ROOT, 'packages', 'playwright-ct-core', 'lib', 'injected', 'packed'),
+    path.join(ROOT, 'packages', 'playwright-ct-core', 'src', 'generated'),
+    false,
+  ]
 ];
 
-const modulePrefix = `"use strict";
-let __export = (target, all) => {
-  for (var name in all)
-    target[name] = all[name];
-};
-let __commonJS = cb => function __require() {
-  let fn;
-  for (const name in cb) {
-    fn = cb[name];
-    break;
+const modulePrefix = `
+var __commonJS = obj => {
+  let required = false;
+  let result;
+  return function __require() {
+    if (!required) {
+      required = true;
+      let fn;
+      for (const name in obj) { fn = obj[name]; break; }
+      const module = { exports: {} };
+      fn(module.exports, module);
+      result = module.exports;
+    }
+    return result;
   }
-  const exports = {};
-  fn(exports);
-  return exports;
 };
-let __toESM = mod => ({ ...mod, 'default': mod });
-let __toCommonJS = mod =>  ({ ...mod, __esModule: true });
+var __export = (target, all) => {for (var name in all) target[name] = all[name];};
+var __toESM = mod => ({ ...mod, 'default': mod });
+var __toCommonJS = mod => ({ ...mod, __esModule: true });
 `;
 
 async function replaceEsbuildHeader(content, outFileJs) {
-  const sourcesStart = content.indexOf('// packages/playwright-core/src/server');
+  let sourcesStart = content.indexOf('__toCommonJS');
+  if (sourcesStart !== -1)
+    sourcesStart = content.indexOf('\n', sourcesStart);
   if (sourcesStart === -1)
     throw new Error(`Did not find start of bundled code in ${outFileJs}`);
 
-  const preambule = content.substring(0, sourcesStart);
+  const preamble = content.substring(0, sourcesStart);
   // Replace standard esbuild definition with our own which do not depend on builtins.
   // See https://github.com/microsoft/playwright/issues/17029
-  if (preambule.indexOf('__toESM') !== -1 || preambule.indexOf('__toCommonJS') !== -1) {
+  if (preamble.indexOf('__toCommonJS') !== -1) {
     content = modulePrefix + content.substring(sourcesStart);
     await fs.promises.writeFile(outFileJs, content);
   }
   return content;
 }
 
+const inlineCSSPlugin = {
+  name: 'inlineCSSPlugin',
+  setup(build) {
+    build.onLoad({ filter: /\.css$/ }, async (args) => {
+      const f = await fs.promises.readFile(args.path)
+      const css = await esbuild.transform(f, { loader: 'css', minify: true });
+      return { loader: 'text', contents: css.code };
+    });
+  },
+};
+
 (async () => {
-  const generatedFolder = path.join(ROOT, 'packages', 'playwright-core', 'src', 'generated');
-  await fs.promises.mkdir(generatedFolder, { recursive: true });
-  for (const injected of injectedScripts) {
-    const outdir = path.join(ROOT, 'packages', 'playwright-core', 'lib', 'server', 'injected', 'packed');
-    await esbuild.build({
+  for (const [injected, outdir, generatedFolder, hasExports] of injectedScripts) {
+    await fs.promises.mkdir(generatedFolder, { recursive: true });
+    const buildOutput = await esbuild.build({
       entryPoints: [injected],
       bundle: true,
       outdir,
       format: 'cjs',
       platform: 'browser',
-      target: 'ES2019'
+      target: 'ES2019',
+      plugins: [inlineCSSPlugin],
     });
+    for (const message of [...buildOutput.errors, ...buildOutput.warnings])
+      console.log(message.text);
     const baseName = path.basename(injected);
     const outFileJs = path.join(outdir, baseName.replace('.ts', '.js'));
     let content = await fs.promises.readFile(outFileJs, 'utf-8');
-    content = await replaceEsbuildHeader(content, outFileJs);
+    if (hasExports)
+      content = await replaceEsbuildHeader(content, outFileJs);
     const newContent = `export const source = ${JSON.stringify(content)};`;
     await fs.promises.writeFile(path.join(generatedFolder, baseName.replace('.ts', 'Source.ts')), newContent);
   }

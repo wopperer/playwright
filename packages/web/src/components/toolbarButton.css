@@ -21,7 +21,6 @@
   color: var(--vscode-sideBarTitle-foreground);
   background: transparent;
   padding: 4px;
-  margin-left: 10px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -38,4 +37,17 @@
 
 .toolbar-button:not(:disabled):active {
   background-color: var(--vscode-toolbar-activeBackground);
+}
+
+.toolbar-button.toggled {
+  color: var(--vscode-notificationLink-foreground);
+}
+
+.toolbar-separator {
+  flex: none;
+  background-color: var(--vscode-menu-separatorBackground);
+  width: 1px;
+  padding: 0;
+  margin: 5px 4px;
+  height: 16px;
 }

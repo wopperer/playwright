@@ -25,9 +25,8 @@ const { firefox } = require('playwright');  // Or 'chromium' or 'webkit'.
 
   function dumpFrameTree(frame, indent) {
     console.log(indent + frame.url());
-    for (const child of frame.childFrames()) {
+    for (const child of frame.childFrames())
       dumpFrameTree(child, indent + '  ');
-    }
   }
 })();
 ```
@@ -57,9 +56,9 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     firefox = playwright.firefox
     browser = await firefox.launch()
     page = await browser.new_page()
@@ -79,9 +78,9 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     firefox = playwright.firefox
     browser = firefox.launch()
     page = browser.new_page()
@@ -223,6 +222,9 @@ When all steps combined have not finished during the specified [`option: timeout
 ### option: Frame.check.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: Frame.check.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ### option: Frame.check.trial = %%-input-trial-%%
 * since: v1.11
 
@@ -274,6 +276,9 @@ When all steps combined have not finished during the specified [`option: timeout
 * since: v1.14
 
 ### option: Frame.click.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: Frame.click.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ### option: Frame.click.trial = %%-input-trial-%%
@@ -335,6 +340,9 @@ When all steps combined have not finished during the specified [`option: timeout
 ### option: Frame.dblclick.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: Frame.dblclick.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ### option: Frame.dblclick.trial = %%-input-trial-%%
 * since: v1.11
 
@@ -374,13 +382,16 @@ default.
 
 Since [`param: eventInit`] is event-specific, please refer to the events documentation for the lists of initial
 properties:
+* [DeviceMotionEvent](https://developer.mozilla.org/en-US/docs/Web/API/DeviceMotionEvent/DeviceMotionEvent)
+* [DeviceOrientationEvent](https://developer.mozilla.org/en-US/docs/Web/API/DeviceOrientationEvent/DeviceOrientationEvent)
 * [DragEvent](https://developer.mozilla.org/en-US/docs/Web/API/DragEvent/DragEvent)
+* [Event](https://developer.mozilla.org/en-US/docs/Web/API/Event/Event)
 * [FocusEvent](https://developer.mozilla.org/en-US/docs/Web/API/FocusEvent/FocusEvent)
 * [KeyboardEvent](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/KeyboardEvent)
 * [MouseEvent](https://developer.mozilla.org/en-US/docs/Web/API/MouseEvent/MouseEvent)
 * [PointerEvent](https://developer.mozilla.org/en-US/docs/Web/API/PointerEvent/PointerEvent)
 * [TouchEvent](https://developer.mozilla.org/en-US/docs/Web/API/TouchEvent/TouchEvent)
-* [Event](https://developer.mozilla.org/en-US/docs/Web/API/Event/Event)
+* [WheelEvent](https://developer.mozilla.org/en-US/docs/Web/API/WheelEvent/WheelEvent)
 
 You can also specify `JSHandle` as the property value if you want live objects to be passed into the event:
 
@@ -437,6 +448,9 @@ Optional event-specific initialization properties.
 ### option: Frame.dispatchEvent.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: Frame.dispatchEvent.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ## async method: Frame.dragAndDrop
 * since: v1.13
 
@@ -456,6 +470,9 @@ Optional event-specific initialization properties.
 * since: v1.14
 
 ### option: Frame.dragAndDrop.timeout = %%-input-timeout-%%
+* since: v1.13
+
+### option: Frame.dragAndDrop.timeout = %%-input-timeout-js-%%
 * since: v1.13
 
 ### option: Frame.dragAndDrop.trial = %%-input-trial-%%
@@ -523,6 +540,9 @@ var html = await frame.EvalOnSelectorAsync(".main-container", "(e, suffix) => e.
 ### param: Frame.evalOnSelector.expression = %%-evaluate-expression-%%
 * since: v1.9
 
+### param: Frame.evalOnSelector.expression = %%-js-evalonselector-pagefunction-%%
+* since: v1.9
+
 ### param: Frame.evalOnSelector.arg
 * since: v1.9
 - `arg` ?<[EvaluationArgument]>
@@ -575,6 +595,9 @@ var divsCount = await frame.EvalOnSelectorAllAsync<bool>("div", "(divs, min) => 
 * since: v1.9
 
 ### param: Frame.evalOnSelectorAll.expression = %%-evaluate-expression-%%
+* since: v1.9
+
+### param: Frame.evalOnSelectorAll.expression = %%-js-evalonselectorall-pagefunction-%%
 * since: v1.9
 
 ### param: Frame.evalOnSelectorAll.arg
@@ -657,7 +680,9 @@ Console.WriteLine(await frame.EvaluateAsync<int>("1 + 2")); // prints "3"
 
 ```js
 const bodyHandle = await frame.evaluate('document.body');
-const html = await frame.evaluate(([body, suffix]) => body.innerHTML + suffix, [bodyHandle, 'hello']);
+const html = await frame.evaluate(([body, suffix]) =>
+  body.innerHTML + suffix, [bodyHandle, 'hello'],
+);
 await bodyHandle.dispose();
 ```
 
@@ -688,6 +713,9 @@ await bodyHandle.DisposeAsync();
 ### param: Frame.evaluate.expression = %%-evaluate-expression-%%
 * since: v1.8
 
+### param: Frame.evaluate.expression = %%-js-evaluate-pagefunction-%%
+* since: v1.8
+
 ### param: Frame.evaluate.arg
 * since: v1.8
 - `arg` ?<[EvaluationArgument]>
@@ -709,8 +737,8 @@ If the function, passed to the [`method: Frame.evaluateHandle`], returns a [Prom
 **Usage**
 
 ```js
+// Handle for the window object
 const aWindowHandle = await frame.evaluateHandle(() => Promise.resolve(window));
-aWindowHandle; // Handle for the window object.
 ```
 
 ```java
@@ -759,7 +787,9 @@ var docHandle = await frame.EvaluateHandleAsync("document"); // Handle for the `
 
 ```js
 const aHandle = await frame.evaluateHandle(() => document.body);
-const resultHandle = await frame.evaluateHandle(([body, suffix]) => body.innerHTML + suffix, [aHandle, 'hello']);
+const resultHandle = await frame.evaluateHandle(([body, suffix]) =>
+  body.innerHTML + suffix, [aHandle, 'hello'],
+);
 console.log(await resultHandle.jsonValue());
 await resultHandle.dispose();
 ```
@@ -795,6 +825,9 @@ await resultHandle.DisposeAsync();
 ### param: Frame.evaluateHandle.expression = %%-evaluate-expression-%%
 * since: v1.8
 
+### param: Frame.evaluateHandle.expression = %%-js-evaluate-pagefunction-%%
+* since: v1.8
+
 ### param: Frame.evaluateHandle.arg
 * since: v1.8
 - `arg` ?<[EvaluationArgument]>
@@ -809,7 +842,7 @@ This method waits for an element matching [`param: selector`], waits for [action
 
 If the target element is not an `<input>`, `<textarea>` or `[contenteditable]` element, this method throws an error. However, if the element is inside the `<label>` element that has an associated [control](https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control), the control will be filled instead.
 
-To send fine-grained keyboard events, use [`method: Frame.type`].
+To send fine-grained keyboard events, use [`method: Locator.pressSequentially`].
 
 ### param: Frame.fill.selector = %%-input-selector-%%
 * since: v1.8
@@ -832,6 +865,9 @@ Value to fill for the `<input>`, `<textarea>` or `[contenteditable]` element.
 ### option: Frame.fill.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: Frame.fill.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ## async method: Frame.focus
 * since: v1.8
 * discouraged: Use locator-based [`method: Locator.focus`] instead. Read more about [locators](../locators.md).
@@ -846,6 +882,9 @@ This method fetches an element with [`param: selector`] and focuses it. If there
 * since: v1.14
 
 ### option: Frame.focus.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: Frame.focus.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ## async method: Frame.frameElement
@@ -950,6 +989,9 @@ Attribute name to get the value for.
 * since: v1.14
 
 ### option: Frame.getAttribute.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: Frame.getAttribute.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ## method: Frame.getByAltText
@@ -1066,6 +1108,9 @@ URL to navigate frame to. The url should include scheme, e.g. `https://`.
 ### option: Frame.goto.timeout = %%-navigation-timeout-%%
 * since: v1.8
 
+### option: Frame.goto.timeout = %%-navigation-timeout-js-%%
+* since: v1.8
+
 ### option: Frame.goto.referer
 * since: v1.8
 - `referer` <[string]>
@@ -1107,6 +1152,9 @@ When all steps combined have not finished during the specified [`option: timeout
 ### option: Frame.hover.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: Frame.hover.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ### option: Frame.hover.trial = %%-input-trial-%%
 * since: v1.11
 
@@ -1129,6 +1177,9 @@ Returns `element.innerHTML`.
 ### option: Frame.innerHTML.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: Frame.innerHTML.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ## async method: Frame.innerText
 * since: v1.8
 * discouraged: Use locator-based [`method: Locator.innerText`] instead. Read more about [locators](../locators.md).
@@ -1143,6 +1194,9 @@ Returns `element.innerText`.
 * since: v1.14
 
 ### option: Frame.innerText.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: Frame.innerText.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ## async method: Frame.inputValue
@@ -1163,6 +1217,9 @@ Throws for non-input elements. However, if the element is inside the `<label>` e
 ### option: Frame.inputValue.timeout = %%-input-timeout-%%
 * since: v1.13
 
+### option: Frame.inputValue.timeout = %%-input-timeout-js-%%
+* since: v1.13
+
 ## async method: Frame.isChecked
 * since: v1.8
 * discouraged: Use locator-based [`method: Locator.isChecked`] instead. Read more about [locators](../locators.md).
@@ -1177,6 +1234,9 @@ Returns whether the element is checked. Throws if the element is not a checkbox 
 * since: v1.14
 
 ### option: Frame.isChecked.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: Frame.isChecked.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ## method: Frame.isDetached
@@ -1201,6 +1261,9 @@ Returns whether the element is disabled, the opposite of [enabled](../actionabil
 ### option: Frame.isDisabled.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: Frame.isDisabled.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ## async method: Frame.isEditable
 * since: v1.8
 * discouraged: Use locator-based [`method: Locator.isEditable`] instead. Read more about [locators](../locators.md).
@@ -1217,6 +1280,9 @@ Returns whether the element is [editable](../actionability.md#editable).
 ### option: Frame.isEditable.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: Frame.isEditable.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ## async method: Frame.isEnabled
 * since: v1.8
 - returns: <[boolean]>
@@ -1230,6 +1296,9 @@ Returns whether the element is [enabled](../actionability.md#enabled).
 * since: v1.14
 
 ### option: Frame.isEnabled.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: Frame.isEnabled.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ## async method: Frame.isHidden
@@ -1282,6 +1351,12 @@ Returns whether the element is [visible](../actionability.md#visible). [`option:
 ### option: Frame.locator.-inline- = %%-locator-options-list-v1.14-%%
 * since: v1.14
 
+### option: Frame.locator.hasNot = %%-locator-option-has-not-%%
+* since: v1.33
+
+### option: Frame.locator.hasNotText = %%-locator-option-has-not-text-%%
+* since: v1.33
+
 ## method: Frame.name
 * since: v1.8
 - returns: <[string]>
@@ -1325,7 +1400,7 @@ Holding down `Shift` will type the text that corresponds to the [`param: key`] i
 If [`param: key`] is a single character, it is case-sensitive, so the values `a` and `A` will generate different
 respective texts.
 
-Shortcuts such as `key: "Control+o"` or `key: "Control+Shift+T"` are supported as well. When specified with the
+Shortcuts such as `key: "Control+o"`, `key: "Control++` or `key: "Control+Shift+T"` are supported as well. When specified with the
 modifier, modifier is pressed and being held while the subsequent key is being pressed.
 
 ### param: Frame.press.selector = %%-input-selector-%%
@@ -1350,6 +1425,9 @@ Time to wait between `keydown` and `keyup` in milliseconds. Defaults to 0.
 * since: v1.14
 
 ### option: Frame.press.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: Frame.press.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ## async method: Frame.querySelector
@@ -1411,7 +1489,7 @@ Triggers a `change` and `input` event once all the provided options have been se
 **Usage**
 
 ```js
-// single selection matching the value
+// Single selection matching the value or label
 frame.selectOption('select#colors', 'blue');
 
 // single selection matching both the value and the label
@@ -1422,7 +1500,7 @@ frame.selectOption('select#colors', 'red', 'green', 'blue');
 ```
 
 ```java
-// single selection matching the value
+// Single selection matching the value or label
 frame.selectOption("select#colors", "blue");
 // single selection matching both the value and the label
 frame.selectOption("select#colors", new SelectOption().setLabel("Blue"));
@@ -1431,7 +1509,7 @@ frame.selectOption("select#colors", new String[] {"red", "green", "blue"});
 ```
 
 ```python async
-# single selection matching the value
+# Single selection matching the value or label
 await frame.select_option("select#colors", "blue")
 # single selection matching the label
 await frame.select_option("select#colors", label="blue")
@@ -1440,7 +1518,7 @@ await frame.select_option("select#colors", value=["red", "green", "blue"])
 ```
 
 ```python sync
-# single selection matching the value
+# Single selection matching the value or label
 frame.select_option("select#colors", "blue")
 # single selection matching both the label
 frame.select_option("select#colors", label="blue")
@@ -1449,7 +1527,7 @@ frame.select_option("select#colors", value=["red", "green", "blue"])
 ```
 
 ```csharp
-// single selection matching the value
+// Single selection matching the value or label
 await frame.SelectOptionAsync("select#colors", new[] { "blue" });
 // single selection matching both the value and the label
 await frame.SelectOptionAsync("select#colors", new[] { new SelectOptionValue() { Label = "blue" } });
@@ -1473,6 +1551,21 @@ await frame.SelectOptionAsync("select#colors", new[] { "red", "green", "blue" })
 * since: v1.14
 
 ### option: Frame.selectOption.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: Frame.selectOption.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
+### param: Frame.selectOption.element = %%-python-select-options-element-%%
+* since: v1.8
+
+### param: Frame.selectOption.index = %%-python-select-options-index-%%
+* since: v1.8
+
+### param: Frame.selectOption.value = %%-python-select-options-value-%%
+* since: v1.8
+
+### param: Frame.selectOption.label = %%-python-select-options-label-%%
 * since: v1.8
 
 ## async method: Frame.setChecked
@@ -1515,11 +1608,16 @@ When all steps combined have not finished during the specified [`option: timeout
 ### option: Frame.setChecked.timeout = %%-input-timeout-%%
 * since: v1.15
 
+### option: Frame.setChecked.timeout = %%-input-timeout-js-%%
+* since: v1.15
+
 ### option: Frame.setChecked.trial = %%-input-trial-%%
 * since: v1.15
 
 ## async method: Frame.setContent
 * since: v1.8
+
+This method internally calls [document.write()](https://developer.mozilla.org/en-US/docs/Web/API/Document/write), inheriting all its specific characteristics and behaviors.
 
 ### param: Frame.setContent.html
 * since: v1.8
@@ -1528,6 +1626,9 @@ When all steps combined have not finished during the specified [`option: timeout
 HTML markup to assign to the page.
 
 ### option: Frame.setContent.timeout = %%-navigation-timeout-%%
+* since: v1.8
+
+### option: Frame.setContent.timeout = %%-navigation-timeout-js-%%
 * since: v1.8
 
 ### option: Frame.setContent.waitUntil = %%-navigation-wait-until-%%
@@ -1556,6 +1657,9 @@ This method expects [`param: selector`] to point to an
 * since: v1.14
 
 ### option: Frame.setInputFiles.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: Frame.setInputFiles.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ## async method: Frame.tap
@@ -1599,6 +1703,9 @@ When all steps combined have not finished during the specified [`option: timeout
 ### option: Frame.tap.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: Frame.tap.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ### option: Frame.tap.trial = %%-input-trial-%%
 * since: v1.11
 
@@ -1618,6 +1725,9 @@ Returns `element.textContent`.
 ### option: Frame.textContent.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: Frame.textContent.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ## async method: Frame.title
 * since: v1.8
 - returns: <[string]>
@@ -1626,7 +1736,7 @@ Returns the page title.
 
 ## async method: Frame.type
 * since: v1.8
-* discouraged: Use locator-based [`method: Locator.type`] instead. Read more about [locators](../locators.md).
+* deprecated: In most cases, you should use [`method: Locator.fill`] instead. You only need to press keys one by one if there is special keyboard handling on the page - in this case use [`method: Locator.pressSequentially`].
 
 Sends a `keydown`, `keypress`/`input`, and `keyup` event for each character in the text. `frame.type` can be used to
 send fine-grained keyboard events. To fill values in form fields, use [`method: Frame.fill`].
@@ -1634,33 +1744,6 @@ send fine-grained keyboard events. To fill values in form fields, use [`method: 
 To press a special key, like `Control` or `ArrowDown`, use [`method: Keyboard.press`].
 
 **Usage**
-
-```js
-await frame.type('#mytextarea', 'Hello'); // Types instantly
-await frame.type('#mytextarea', 'World', {delay: 100}); // Types slower, like a user
-```
-
-```java
-// Types instantly
-frame.type("#mytextarea", "Hello");
-// Types slower, like a user
-frame.type("#mytextarea", "World", new Frame.TypeOptions().setDelay(100));
-```
-
-```python async
-await frame.type("#mytextarea", "hello") # types instantly
-await frame.type("#mytextarea", "world", delay=100) # types slower, like a user
-```
-
-```python sync
-frame.type("#mytextarea", "hello") # types instantly
-frame.type("#mytextarea", "world", delay=100) # types slower, like a user
-```
-
-```csharp
-await frame.TypeAsync("#mytextarea", "hello"); // types instantly
-await frame.TypeAsync("#mytextarea", "world", new() { Delay = 100 }); // types slower, like a user
-```
 
 ### param: Frame.type.selector = %%-input-selector-%%
 * since: v1.8
@@ -1684,6 +1767,9 @@ Time to wait between key presses in milliseconds. Defaults to 0.
 * since: v1.14
 
 ### option: Frame.type.timeout = %%-input-timeout-%%
+* since: v1.8
+
+### option: Frame.type.timeout = %%-input-timeout-js-%%
 * since: v1.8
 
 ## async method: Frame.uncheck
@@ -1723,6 +1809,9 @@ When all steps combined have not finished during the specified [`option: timeout
 ### option: Frame.uncheck.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: Frame.uncheck.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ### option: Frame.uncheck.trial = %%-input-trial-%%
 * since: v1.11
 
@@ -1749,7 +1838,7 @@ const { firefox } = require('playwright');  // Or 'chromium' or 'webkit'.
   const browser = await firefox.launch();
   const page = await browser.newPage();
   const watchDog = page.mainFrame().waitForFunction('window.innerWidth < 100');
-  page.setViewportSize({width: 50, height: 50});
+  await page.setViewportSize({ width: 50, height: 50 });
   await watchDog;
   await browser.close();
 })();
@@ -1774,9 +1863,9 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     webkit = playwright.webkit
     browser = await webkit.launch()
     page = await browser.new_page()
@@ -1791,9 +1880,9 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     webkit = playwright.webkit
     browser = webkit.launch()
     page = browser.new_page()
@@ -1852,6 +1941,9 @@ await page.MainFrame.WaitForFunctionAsync("selector => !!document.querySelector(
 ### param: Frame.waitForFunction.expression = %%-evaluate-expression-%%
 * since: v1.8
 
+### param: Frame.waitForFunction.expression = %%-js-evaluate-pagefunction-%%
+* since: v1.8
+
 ### param: Frame.waitForFunction.arg
 * since: v1.8
 - `arg` ?<[EvaluationArgument]>
@@ -1864,7 +1956,10 @@ Optional argument to pass to [`param: expression`].
 ### option: Frame.waitForFunction.polling = %%-csharp-java-wait-for-function-polling-%%
 * since: v1.8
 
-### option: Frame.waitForFunction.timeout = %%-wait-for-timeout-%%
+### option: Frame.waitForFunction.timeout = %%-wait-for-function-timeout-%%
+* since: v1.8
+
+### option: Frame.waitForFunction.timeout = %%-wait-for-function-timeout-js-%%
 * since: v1.8
 
 ## async method: Frame.waitForLoadState
@@ -1908,8 +2003,12 @@ await frame.WaitForLoadStateAsync(); // Defaults to LoadState.Load
 ### option: Frame.waitForLoadState.timeout = %%-navigation-timeout-%%
 * since: v1.8
 
+### option: Frame.waitForLoadState.timeout = %%-navigation-timeout-js-%%
+* since: v1.8
+
 ## async method: Frame.waitForNavigation
 * since: v1.8
+* deprecated: This method is inherently racy, please use [`method: Frame.waitForURL`] instead.
 * langs:
   * alias-python: expect_navigation
   * alias-csharp: RunAndWaitForNavigation
@@ -1966,6 +2065,15 @@ Usage of the [History API](https://developer.mozilla.org/en-US/docs/Web/API/Hist
 a navigation.
 :::
 
+## async method: Frame.waitForNavigation
+* since: v1.8
+* deprecated: This method is inherently racy, please use [`method: Frame.waitForURL`] instead.
+* langs: python
+- returns: <[EventContextManager]<[Response]>>
+
+### param: Frame.waitForNavigation.action = %%-csharp-wait-for-event-action-%%
+* since: v1.12
+
 ### option: Frame.waitForNavigation.url = %%-wait-for-navigation-url-%%
 * since: v1.8
 
@@ -1975,8 +2083,16 @@ a navigation.
 ### option: Frame.waitForNavigation.timeout = %%-navigation-timeout-%%
 * since: v1.8
 
+### option: Frame.waitForNavigation.timeout = %%-navigation-timeout-js-%%
+* since: v1.8
+
+### param: Frame.waitForNavigation.callback = %%-java-wait-for-event-callback-%%
+* since: v1.9
+
 ## async method: Frame.waitForSelector
 * since: v1.8
+* discouraged: Use web assertions that assert visibility or a locator-based [`method: Locator.waitFor`] instead.
+  Read more about [locators](../locators.md).
 - returns: <[null]|[ElementHandle]>
 
 Returns when element specified by selector satisfies [`option: state`] option. Returns `null` if waiting for `hidden` or
@@ -2002,7 +2118,7 @@ const { chromium } = require('playwright');  // Or 'firefox' or 'webkit'.
 (async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage();
-  for (let currentURL of ['https://google.com', 'https://bbc.com']) {
+  for (const currentURL of ['https://google.com', 'https://bbc.com']) {
     await page.goto(currentURL);
     const element = await page.mainFrame().waitForSelector('img');
     console.log('Loaded image: ' + await element.getAttribute('src'));
@@ -2033,9 +2149,9 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     chromium = playwright.chromium
     browser = await chromium.launch()
     page = await browser.new_page()
@@ -2052,9 +2168,9 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     chromium = playwright.chromium
     browser = chromium.launch()
     page = browser.new_page()
@@ -2103,8 +2219,13 @@ class FrameExamples
 ### option: Frame.waitForSelector.timeout = %%-input-timeout-%%
 * since: v1.8
 
+### option: Frame.waitForSelector.timeout = %%-input-timeout-js-%%
+* since: v1.8
+
 ## async method: Frame.waitForTimeout
 * since: v1.8
+* discouraged: Never wait for timeout in production. Tests that wait for time are
+  inherently flaky. Use [Locator] actions and web assertions that wait automatically.
 
 Waits for the given [`param: timeout`] in milliseconds.
 
@@ -2153,6 +2274,9 @@ await frame.WaitForURLAsync("**/target.html");
 * since: v1.11
 
 ### option: Frame.waitForURL.timeout = %%-navigation-timeout-%%
+* since: v1.11
+
+### option: Frame.waitForURL.timeout = %%-navigation-timeout-js-%%
 * since: v1.11
 
 ### option: Frame.waitForURL.waitUntil = %%-navigation-wait-until-%%

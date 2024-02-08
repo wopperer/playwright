@@ -86,8 +86,6 @@ export function compare(actual: Buffer, expected: Buffer, diff: Buffer|null, wid
         continue;
       }
 
-      // if this pixel is a part of a flood fill of a 3x3 square then it cannot be
-      // anti-aliasing pixel so it must be a pixel difference.
       if (!fastR || !fastG || !fastB) {
         fastR = new FastStats(r1, r2);
         fastG = new FastStats(g1, g2);
@@ -97,7 +95,9 @@ export function compare(actual: Buffer, expected: Buffer, diff: Buffer|null, wid
       const [varX2, varY2] = r1.boundXY(x + VARIANCE_WINDOW_RADIUS, y + VARIANCE_WINDOW_RADIUS);
       const var1 = fastR.varianceC1(varX1, varY1, varX2, varY2) + fastG.varianceC1(varX1, varY1, varX2, varY2) + fastB.varianceC1(varX1, varY1, varX2, varY2);
       const var2 = fastR.varianceC2(varX1, varY1, varX2, varY2) + fastG.varianceC2(varX1, varY1, varX2, varY2) + fastB.varianceC2(varX1, varY1, varX2, varY2);
-      if (var1 === 0 && var2 === 0) {
+      // if this pixel is a part of a flood fill of a 3x3 square of either of the images, then it cannot be
+      // anti-aliasing pixel so it must be a pixel difference.
+      if (var1 === 0 || var2 === 0) {
         drawRedPixel(x, y);
         ++diffCount;
         continue;
@@ -106,8 +106,8 @@ export function compare(actual: Buffer, expected: Buffer, diff: Buffer|null, wid
       const [ssimX1, ssimY1] = r1.boundXY(x - SSIM_WINDOW_RADIUS, y - SSIM_WINDOW_RADIUS);
       const [ssimX2, ssimY2] = r1.boundXY(x + SSIM_WINDOW_RADIUS, y + SSIM_WINDOW_RADIUS);
       const ssimRGB = (ssim(fastR, ssimX1, ssimY1, ssimX2, ssimY2) + ssim(fastG, ssimX1, ssimY1, ssimX2, ssimY2) + ssim(fastB, ssimX1, ssimY1, ssimX2, ssimY2)) / 3.0;
-      const isAntialiassed = ssimRGB >= 0.99;
-      if (isAntialiassed) {
+      const isAntialiased = ssimRGB >= 0.99;
+      if (isAntialiased) {
         drawYellowPixel(x, y);
       } else {
         drawRedPixel(x, y);

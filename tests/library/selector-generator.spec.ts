@@ -21,6 +21,10 @@ async function generate(pageOrFrame: Page | Frame, target: string): Promise<stri
   return pageOrFrame.$eval(target, e => (window as any).playwright.selector(e));
 }
 
+async function generateMultiple(pageOrFrame: Page | Frame, target: string): Promise<string> {
+  return pageOrFrame.$eval(target, e => (window as any).__injectedScript.generateSelector(e, { multiple: true, testIdAttributeName: 'data-testid' }).selectors);
+}
+
 it.describe('selector generator', () => {
   it.skip(({ mode }) => mode !== 'default');
 
@@ -54,8 +58,36 @@ it.describe('selector generator', () => {
   });
 
   it('should trim text', async ({ page }) => {
-    await page.setContent(`<div>Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789</div>`);
+    await page.setContent(`
+      <div>Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789</div>
+      <div>Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789!Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789</div>
+    `);
     expect(await generate(page, 'div')).toBe('internal:text="Text0123456789Text0123456789Text0123456789Text0123456789Text0123456789Text012345"i');
+  });
+
+  it('should try to improve role name', async ({ page }) => {
+    await page.setContent(`<div role=button>Issues 23</div>`);
+    expect(await generate(page, 'div')).toBe('internal:role=button[name="Issues"i]');
+  });
+
+  it('should try to improve text', async ({ page }) => {
+    await page.setContent(`<div>23 Issues</div>`);
+    expect(await generate(page, 'div')).toBe('internal:text="Issues"i');
+  });
+
+  it('should try to improve text by shortening', async ({ page }) => {
+    await page.setContent(`<div>Longest verbose description of the item</div>`);
+    expect(await generate(page, 'div')).toBe('internal:text="Longest verbose description"i');
+  });
+
+  it('should try to improve label text by shortening', async ({ page }) => {
+    await page.setContent(`<label>Longest verbose description of the item<input></label>`);
+    expect(await generate(page, 'input')).toBe('internal:label="Longest verbose description"i');
+  });
+
+  it('should not improve guid text', async ({ page }) => {
+    await page.setContent(`<div>91b1b23</div>`);
+    expect(await generate(page, 'div')).toBe('internal:text="91b1b23"i');
   });
 
   it('should not escape text with >>', async ({ page }) => {
@@ -162,6 +194,15 @@ it.describe('selector generator', () => {
     expect(await generate(page, 'a:has-text("Hello")')).toBe(`a >> internal:has-text="Hello world"i`);
   });
 
+  it('should use internal:has-text with regexp', async ({ page }) => {
+    await page.setContent(`
+      <span>Hello world</span>
+      <div><div>Hello <span>world</span></div>extra</div>
+      <a>Goodbye <span>world</span></a>
+    `);
+    expect(await generate(page, 'div div')).toBe(`div >> internal:has-text=/^Hello world$/`);
+  });
+
   it('should chain text after parent', async ({ page }) => {
     await page.setContent(`
       <div>Hello <span>world</span></div>
@@ -197,9 +238,10 @@ it.describe('selector generator', () => {
       </div>
       <div id="id">
       <div>Text that goes on and on and on and on and on and on and on and on and on and on and on and on and on and on and on</div>
+      <div>Text that goes on and on and on and on and on and on and on and on and X on and on and on and on and on and on and on</div>
       </div>
     `);
-    expect(await generate(page, '#id > div')).toBe(`#id >> internal:text="Text that goes on and on and on and on and on and on and on and on and on and on"i`);
+    expect(await generate(page, '#id > div')).toBe(`#id >> internal:text="Text that goes on and on and on and on and on and on and on and on and on and"i`);
   });
 
   it('should use nested ordinals', async ({ page }) => {
@@ -346,7 +388,7 @@ it.describe('selector generator', () => {
     expect(await generate(page, 'ng\\:switch')).toBe('ng\\:switch');
 
     await page.setContent(`<button><span></span></button><button></button>`);
-    await page.$eval('button', button => button.setAttribute('aria-label', `!#'!?:`));
+    await page.$eval('span', span => span.textContent = `!#'!?:`);
     expect(await generate(page, 'button')).toBe(`internal:role=button[name="!#'!?:"i]`);
     expect(await page.$(`role=button[name="!#'!?:"]`)).toBeTruthy();
 
@@ -371,7 +413,7 @@ it.describe('selector generator', () => {
 
   it('should accept valid aria-label for candidate consideration', async ({ page }) => {
     await page.setContent(`<button aria-label="ariaLabel" id="buttonId"></button>`);
-    expect(await generate(page, 'button')).toBe('internal:role=button[name=\"ariaLabel\"i]');
+    expect(await generate(page, 'button')).toBe('internal:label="ariaLabel"i');
   });
 
   it('should ignore empty role for candidate consideration', async ({ page }) => {
@@ -395,8 +437,20 @@ it.describe('selector generator', () => {
   });
 
   it('should generate label selector', async ({ page }) => {
-    await page.setContent(`<label for=target>Country</label><input id=target>`);
-    expect(await generate(page, 'input')).toBe('internal:label="Country"i');
+    await page.setContent(`
+      <label for=target1>Target1</label><input id=target1>
+      <label for=target2>Target2</label><button id=target2>??</button>
+      <label for=target3>Target3</label><select id=target3><option>hey</option></select>
+      <label for=target4>Target4</label><progress id=target4 value=70 max=100>70%</progress>
+      <label for=target5>Target5</label><input id=target5 type=hidden>
+      <label for=target6>Target6</label><div id=target6>text</div>
+    `);
+    expect(await generate(page, '#target1')).toBe('internal:label="Target1"i');
+    expect(await generate(page, '#target2')).toBe('internal:label="Target2"i');
+    expect(await generate(page, '#target3')).toBe('internal:label="Target3"i');
+    expect(await generate(page, '#target4')).toBe('internal:label="Target4"i');
+    expect(await generate(page, '#target5')).toBe('#target5');
+    expect(await generate(page, '#target6')).toBe('internal:text="text"i');
 
     await page.setContent(`<label for=target>Coun"try</label><input id=target>`);
     expect(await generate(page, 'input')).toBe('internal:label="Coun\\\"try"i');
@@ -453,5 +507,69 @@ it.describe('selector generator', () => {
       <label>Text and more <input></input></label>
     `);
     expect(await generate(page, 'input')).toBe('internal:label=\"Text\"s');
+  });
+
+  it('should generate relative selector', async ({ page }) => {
+    await page.setContent(`
+      <div>
+        <span>Hello</span>
+        <span>World</span>
+      </div>
+      <section>
+        <span>Hello</span>
+        <span>World</span>
+      </section>
+    `);
+    const selectors = await page.evaluate(() => {
+      const target = document.querySelector('section > span');
+      const root = document.querySelector('section');
+      const relative = (window as any).__injectedScript.generateSelectorSimple(target, { root });
+      const absolute = (window as any).__injectedScript.generateSelectorSimple(target);
+      return { relative, absolute };
+    });
+    expect(selectors).toEqual({
+      relative: `internal:text="Hello"i`,
+      absolute: `section >> internal:text="Hello"i`,
+    });
+  });
+
+  it('should generate multiple: noText in role', async ({ page }) => {
+    await page.setContent(`
+      <button>Click me</button>
+    `);
+    expect(await generateMultiple(page, 'button')).toEqual([`internal:role=button[name="Click me"i]`, `internal:role=button`]);
+  });
+
+  it('should generate multiple: noText in text', async ({ page }) => {
+    await page.setContent(`
+      <div>Some div</div>
+    `);
+    expect(await generateMultiple(page, 'div')).toEqual([`internal:text="Some div"i`, `div`]);
+  });
+
+  it('should generate multiple: noId', async ({ page }) => {
+    await page.setContent(`
+      <div id=first><button>Click me</button></div>
+      <div id=second><button>Click me</button></div>
+    `);
+    expect(await generateMultiple(page, '#second button')).toEqual([
+      `#second >> internal:role=button[name="Click me"i]`,
+      `#second >> internal:role=button`,
+      `internal:role=button[name="Click me"i] >> nth=1`,
+      `internal:role=button >> nth=1`,
+    ]);
+  });
+
+  it('should generate multiple: noId noText', async ({ page }) => {
+    await page.setContent(`
+      <div id=first><span>Some span</span></div>
+      <div id=second><span>Some span</span></div>
+    `);
+    expect(await generateMultiple(page, '#second span')).toEqual([
+      `#second >> internal:text="Some span"i`,
+      `#second span`,
+      `internal:text="Some span"i >> nth=1`,
+      `span >> nth=1`,
+    ]);
   });
 });

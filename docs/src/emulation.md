@@ -3,15 +3,16 @@ id: emulation
 title: "Emulation"
 ---
 
+## Introduction
+
 With Playwright you can test your app on any browser as well as emulate a real device such as a mobile phone or tablet. Simply configure the devices you would like to emulate and Playwright will simulate the browser behavior such as `"userAgent"`, `"screenSize"`, `"viewport"` and if it `"hasTouch"` enabled. You can also emulate the `"geolocation"`, `"locale"` and `"timezone"` for all tests or for a specific test as well as set the `"permissions"` to show notifications or change the `"colorScheme"`.
 
 ## Devices
 * langs: js, csharp, python
 
-Playwright comes with a [registry of device parameters](https://github.com/microsoft/playwright/blob/main/packages/playwright-core/src/server/deviceDescriptorsSource.json) using [`property: Playwright.devices`] for selected desktop, tablet and mobile devices. It can be used to simulate browser behavior for a specific device such as user agent, screen size, viewport and if it has touch enabled. All tests will run with the specified device parameters. 
+Playwright comes with a [registry of device parameters](https://github.com/microsoft/playwright/blob/main/packages/playwright-core/src/server/deviceDescriptorsSource.json) using [`property: Playwright.devices`] for selected desktop, tablet and mobile devices. It can be used to simulate browser behavior for a specific device such as user agent, screen size, viewport and if it has touch enabled. All tests will run with the specified device parameters.
 
-```js tab=js-ts
-// playwright.config.ts
+```js tab=js-test title="playwright.config.ts"
 import { defineConfig, devices } from '@playwright/test'; // import devices
 
 export default defineConfig({
@@ -25,30 +26,7 @@ export default defineConfig({
     {
       name: 'Mobile Safari',
       use: {
-        ...devices['iPhone 12'],
-      },
-    },
-  ],
-});
-```
-
-```js tab=js-js
-// playwright.config.js
-// @ts-check
-const { devices, defineConfig } = require('@playwright/test'); // require devices
-
-module.exports = defineConfig({
-  projects: [
-    {
-      name: 'chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-      },
-    },
-    {
-      name: 'Mobile Safari',
-      use: {
-        ...devices['iPhone 12'],
+        ...devices['iPhone 13'],
       },
     },
   ],
@@ -59,21 +37,21 @@ module.exports = defineConfig({
 const { chromium, devices } = require('playwright');
 const browser = await chromium.launch();
 
-const iphone12 = devices['iPhone 12'];
+const iphone13 = devices['iPhone 13'];
 const context = await browser.newContext({
-  ...iphone12,
+  ...iphone13,
 });
 ```
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
-    iphone_12 = playwright.devices['iPhone 12']
+async def run(playwright: Playwright):
+    iphone_13 = playwright.devices['iPhone 13']
     browser = await playwright.webkit.launch(headless=False)
     context = await browser.new_context(
-        **iphone_12,
+        **iphone_13,
     )
 
 async def main():
@@ -83,13 +61,13 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
-    iphone_12 = playwright.devices['iPhone 12']
+def run(playwright: Playwright):
+    iphone_13 = playwright.devices['iPhone 13']
     browser = playwright.webkit.launch(headless=False)
     context = browser.new_context(
-        **iphone_12,
+        **iphone_13,
     )
 
 with sync_playwright() as playwright:
@@ -100,47 +78,63 @@ with sync_playwright() as playwright:
 using Microsoft.Playwright;
 using System.Threading.Tasks;
 
-class Program
+using var playwright = await Playwright.CreateAsync();
+await using var browser = await playwright.Chromium.LaunchAsync(new()
 {
-    public static async Task Main()
-    {
-        using var playwright = await Playwright.CreateAsync();
-        await using var browser = await playwright.Chromium.LaunchAsync(new()
-        {
-            Headless: False
-        });
-        var iphone12 = playwright.Devices["iPhone 12"];
-        await using var context = await browser.NewContextAsync(iphone12);
-    }
-}
+    Headless = false
+});
+var iphone13 = playwright.Devices["iPhone 13"];
+await using var context = await browser.NewContextAsync(iphone13);
 ```
+
+
+<img width="458" alt="playwright.dev website emulated for iPhone 13" src="https://user-images.githubusercontent.com/13063165/220411073-76fe59f9-9a2d-463d-8e30-c19a7deca133.png" />
+
+
+## Devices
+* langs: java
+
+Playwright can emulate various devices by specifying `setDeviceScaleFactor`, `setHasTouch`, `setIsMobile`, `setScreenSize`, `setUserAgent` and `setViewportSize` options when creating a context with [`method: Browser.newContext`].
 
 ## Viewport
 
 The viewport is included in the device but you can override it for some tests with [`method: Page.setViewportSize`].
 
-```js tab=js-ts
-import { test, expect } from '@playwright/test';
+```js tab=js-test title="playwright.config.ts"
+import { defineConfig, devices } from '@playwright/test';
 
-// Run tests in this file with portrait-like viewport.
-test.use({
-  viewport: { width: 600, height: 900 },
-});
-
-test('my portrait test', async ({ page }) => {
-  // ...
+export default defineConfig({
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        // It is important to define the `viewport` property after destructuring `devices`,
+        // since devices also define the `viewport` for that device.
+        viewport: { width: 1280, height: 720 },
+      },
+    },
+  ]
 });
 ```
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+```js tab=js-library
+// Create context with given viewport
+const context = await browser.newContext({
+  viewport: { width: 1280, height: 1024 }
+});
+```
 
-// Run tests in this file with portrait-like viewport.
-test.use({ 
-  viewport: { width: 600, height: 900 },
+Test file:
+
+```js tab=js-test title="tests/example.spec.ts"
+import { test, expect } from '@playwright/test';
+
+test.use({
+  viewport: { width: 1600, height: 1200 },
 });
 
-test('my portrait test', async ({ page }) => {
+test('my test', async ({ page }) => {
   // ...
 });
 ```
@@ -160,32 +154,27 @@ const context = await browser.newContext({
   deviceScaleFactor: 2,
 });
 ```
-The same works inside a describe block.
 
-```js tab=js-ts
+The same works inside a test file.
+
+```js tab=js-test title="tests/example.spec.ts"
 import { test, expect } from '@playwright/test';
 
-test.describe('locale block', () => {
-  // Run tests in this describe block with portrait-like viewport.
-  test.use({ viewport: { width: 600, height: 900 } });
+test.describe('specific viewport block', () => {
+  test.use({ viewport: { width: 1600, height: 1200 } });
 
-  test('my portrait test', async ({ page }) => {
+  test('my test', async ({ page }) => {
     // ...
   });
 });
 ```
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.describe('locale block', () => {
-  // Run tests in this describe block with portrait-like viewport.
-  test.use({ viewport: { width: 600, height: 900 } });
-
-  test('my portrait test', async ({ page }) => {
-    // ...
-  });
+```js tab=js-library
+// Create context with given viewport
+const context = await browser.newContext({
+  viewport: { width: 1600, height: 1200 }
 });
+const page = await context.newPage();
 ```
 
 ```java
@@ -225,12 +214,13 @@ context = browser.new_context(
 )
 
 # Resize viewport for individual page
-await page.set_viewport_size({"width": 1600, "height": 1200})
+page.set_viewport_size({"width": 1600, "height": 1200})
 
 # Emulate high-DPI
 context = browser.new_context(
   viewport={ 'width': 2560, 'height': 1440 },
   device_scale_factor=2,
+)
 ```
 
 ```csharp
@@ -250,38 +240,86 @@ await using var context = await browser.NewContextAsync(new()
     DeviceScaleFactor = 2
 });
 ```
+
+## isMobile
+
+Whether the meta viewport tag is taken into account and touch events are enabled.
+
+```js title="playwright.config.ts"
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        // It is important to define the `isMobile` property after destructuring `devices`,
+        // since devices also define the `isMobile` for that device.
+        isMobile: false,
+      },
+    },
+  ]
+});
+```
+
+```java
+BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+  .isMobile(false));
+```
+
+```python async
+context = await browser.new_context(
+  isMobile=false
+)
+```
+
+```python sync
+context = browser.new_context(
+  isMobile=false
+)
+```
+
+```csharp
+await using var context = await browser.NewContextAsync(new()
+{
+    IsMobile = new IsMoble() { false }
+});
+```
+
 ## Locale & Timezone
 
 Emulate the user Locale and Timezone which can be set globally for all tests in the config and then overridden for particular tests.
 
-```js tab=js-ts
-import { test, expect } from '@playwright/test';
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
 
-test.use({ 
-  locale: 'de-DE',
-  timezoneId: 'Europe/Berlin',
-});
+export default defineConfig({
+  use: {
+    // Emulates the user locale.
+    locale: 'en-GB',
 
-test('my test for de lang in Berlin timezone', async ({ page }) => {
-  // ...
+    // Emulates the user timezone.
+    timezoneId: 'Europe/Paris',
+  },
 });
 ```
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+```js tab=js-test title="tests/example.spec.ts"
+import { test, expect } from '@playwright/test';
 
-test.use({ 
+test.use({
   locale: 'de-DE',
   timezoneId: 'Europe/Berlin',
 });
 
 test('my test for de lang in Berlin timezone', async ({ page }) => {
+  await page.goto('https://www.bing.com');
   // ...
 });
 ```
 
 ```js tab=js-library
-// Emulate locale and time
 const context = await browser.newContext({
   locale: 'de-DE',
   timezoneId: 'Europe/Berlin',
@@ -289,14 +327,12 @@ const context = await browser.newContext({
 ```
 
 ```java
-// Emulate locale and time
 BrowserContext context = browser.newContext(new Browser.NewContextOptions()
   .setLocale("de-DE")
   .setTimezoneId("Europe/Berlin"));
 ```
 
 ```python async
-# Emulate locale and time
 context = await browser.new_context(
   locale='de-DE',
   timezone_id='Europe/Berlin',
@@ -304,7 +340,6 @@ context = await browser.new_context(
 ```
 
 ```python sync
-# Emulate locale and time
 context = browser.new_context(
   locale='de-DE',
   timezone_id='Europe/Berlin',
@@ -318,25 +353,18 @@ await using var context = await browser.NewContextAsync(new()
     TimezoneId = "Europe/Berlin"
 });
 ```
+
+<img width="1394" alt="Bing in german lang and timezone" src="https://user-images.githubusercontent.com/13063165/220416571-ccc96ab1-44bb-4579-8430-64502fc24a15.png" />
 ## Permissions
 
 Allow app to show system notifications.
 
-```js tab=js-js
-// @ts-check
+```js tab=js-test title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
 
-const { defineConfig } = require('@playwright/test');
-module.exports = defineConfig({
-  use: {
-    permissions: ['notifications'],
-  },
-});
-```
-
-```js tab=js-ts
-import type { PlaywrightTestConfig } from '@playwright/test';
 export default defineConfig({
   use: {
+    // Grants specified permissions to the browser context.
     permissions: ['notifications'],
   },
 });
@@ -365,64 +393,9 @@ context = browser.new_context(
 )
 ```
 
-Allow test to request current location.
-
-```js tab=js-js
-// @ts-check
-
-const { defineConfig } = require('@playwright/test');
-module.exports = defineConfig({
-  use: {
-    permissions: ['geolocation'],
-  },
-});
-```
-
-```js tab=js-ts
-import type { defineConfig } from '@playwright/test';
-export default defineConfig({
-  use: {
-    permissions: ['geolocation'],
-  },
-});
-```
-
-```js tab=js-library
-await context.grantPermissions(['geolocation']);
-```
-
-```java
-context.grantPermissions(Arrays.asList("geolocation"));
-```
-
-```python async
-await context.grant_permissions(['geolocation'])
-```
-
-```python sync
-context.grant_permissions(['geolocation'])
-```
-
-```csharp
-await context.GrantPermissionsAsync(new[] { "geolocation" });
-```
-
 Allow notifications for a specific domain.
 
-```js tab=js-js
-const { test } = require('@playwright/test');
-
-test.beforeEach(async ({ context }) => {
-  // Runs before each test and signs in each page.
-  await context.grantPermissions(['notifications'], { origin: 'https://skype.com' });
-});
-
-test('first', async ({ page }) => {
-  // page has notifications permission for https://skype.com.
-});
-```
-
-```js tab=js-ts
+```js tab=js-test title="tests/example.spec.ts"
 import { test } from '@playwright/test';
 
 test.beforeEach(async ({ context }) => {
@@ -478,28 +451,28 @@ context.clear_permissions()
 ```csharp
 await context.ClearPermissionsAsync();
 ```
+
 ## Geolocation
 
-Create a test with `"geolocation"` permissions granted and geolocation set to a specific area.
+Grant `"geolocation"` permissions and set geolocation to a specific area.
 
-```js tab=js-ts
-import { test, expect } from '@playwright/test';
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
 
-test.use({ 
-  geolocation: { longitude: 48.858455, latitude: 2.294474 },
-  permissions: ['geolocation'],
-});
-
-test('my test with geolocation', async ({ page }) => {
-  // ...
+export default defineConfig({
+  use: {
+    // Context geolocation
+    geolocation: { longitude: 12.492507, latitude: 41.889938 },
+    permissions: ['geolocation'],
+  },
 });
 ```
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+```js tab=js-test title="tests/example.spec.ts"
+import { test, expect } from '@playwright/test';
 
-test.use({ 
-  geolocation: { longitude: 48.858455, latitude: 2.294474 },
+test.use({
+  geolocation: { longitude: 41.890221, latitude: 12.492348 },
   permissions: ['geolocation'],
 });
 
@@ -510,7 +483,7 @@ test('my test with geolocation', async ({ page }) => {
 
 ```js tab=js-library
 const context = await browser.newContext({
-  geolocation: { longitude: 48.858455, latitude: 2.294474 },
+  geolocation: { longitude: 41.890221, latitude: 12.492348 },
   permissions: ['geolocation']
 });
 
@@ -518,20 +491,20 @@ const context = await browser.newContext({
 
 ```java
 BrowserContext context = browser.newContext(new Browser.NewContextOptions()
-  .setGeolocation(48.858455, 2.294474)
+  .setGeolocation(41.890221, 12.492348)
   .setPermissions(Arrays.asList("geolocation")));
 ```
 
 ```python async
 context = await browser.new_context(
-  geolocation={"longitude": 48.858455, "latitude": 2.294474},
+  geolocation={"longitude": 41.890221, "latitude": 12.492348},
   permissions=["geolocation"]
 )
 ```
 
 ```python sync
 context = browser.new_context(
-  geolocation={"longitude": 48.858455, "latitude": 2.294474},
+  geolocation={"longitude": 41.890221, "latitude": 12.492348},
   permissions=["geolocation"]
 )
 ```
@@ -540,81 +513,67 @@ context = browser.new_context(
 await using var context = await browser.NewContextAsync(new()
 {
     Permissions = new[] { "geolocation" },
-    Geolocation = new Geolocation() { Longitude = 48.858455f, Latitude = 2.294474f }
+    Geolocation = new Geolocation() { Longitude = 41.890221, Latitude = 12.492348 }
 });
 ```
+
+<img width="1394" alt="geolocation for italy on bing maps" src="https://user-images.githubusercontent.com/13063165/220417670-bb22d815-f5cd-47c4-8562-0b88165eac27.png" />
 
 Change the location later:
 
-```js tab=js-ts
+```js tab=js-test title="tests/example.spec.ts"
 import { test, expect } from '@playwright/test';
 
-test.use({ 
-  geolocation: { longitude: 48.858455, latitude: 2.294474 },
+test.use({
+  geolocation: { longitude: 41.890221, latitude: 12.492348 },
   permissions: ['geolocation'],
 });
 
 test('my test with geolocation', async ({ page, context }) => {
   // overwrite the location for this test
-  await context.setGeolocation({ longitude: 29.979097, latitude: 31.134256 });
-});
-```
-
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
-
-test.use({ 
-  geolocation: { longitude: 48.858455, latitude: 2.294474 },
-  permissions: ['geolocation'],
-});
-
-test('my test with geolocation', async ({ page, context }) => {
-  // overwrite the location for this test
-  await context.setGeolocation({ longitude: 29.979097, latitude: 31.134256 });
+  await context.setGeolocation({ longitude: 48.858455, latitude: 2.294474 });
 });
 ```
 
 ```js tab=js-library
-await context.setGeolocation({ longitude: 29.979097, latitude: 31.134256 });
+await context.setGeolocation({ longitude: 48.858455, latitude: 2.294474 });
 ```
 
 ```java
-context.setGeolocation(new Geolocation(29.979097, 31.134256));
+context.setGeolocation(new Geolocation(48.858455, 2.294474));
 ```
 
 ```python async
-await context.set_geolocation({"longitude": 29.979097, "latitude": 31.134256})
+await context.set_geolocation({"longitude": 48.858455, "latitude": 2.294474})
 ```
 
 ```python sync
-context.set_geolocation({"longitude": 29.979097, "latitude": 31.134256})
+context.set_geolocation({"longitude": 48.858455, "latitude": 2.294474})
 ```
 
 ```csharp
-await context.SetGeolocationAsync(new Geolocation() { Longitude = 48.858455f, Latitude = 2.294474f });
+await context.SetGeolocationAsync(new Geolocation() { Longitude = 48.858455, Latitude = 2.294474 });
 ```
 
 **Note** you can only change geolocation for all pages in the context.
 ## Color Scheme and Media
 
-Create a test that emulates the users `"colorScheme"`. Supported values are 'light', 'dark', 'no-preference'. You can also emulate the media type with [`method: Page.emulateMedia`].
+Emulate the users `"colorScheme"`. Supported values are 'light', 'dark', 'no-preference'. You can also emulate the media type with [`method: Page.emulateMedia`].
 
-```js tab=js-ts
-import { test, expect } from '@playwright/test';
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
 
-test.use({ 
-  colorScheme: 'dark' // or 'light'
-});
-
-test('my test with dark mode', async ({ page }) => {
-  // ...
+export default defineConfig({
+  use: {
+    colorScheme: 'dark',
+  },
 });
 ```
 
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
+```js tab=js-test title="tests/example.spec.ts"
+import { test, expect } from '@playwright/test';
 
-test.use({ 
+test.use({
   colorScheme: 'dark' // or 'light'
 });
 
@@ -718,22 +677,14 @@ await page.EmulateMediaAsync(new()
     Media = Media.Print
 });
 ```
+
+<img width="1394" alt="playwright web in dark mode" src="https://user-images.githubusercontent.com/13063165/220411638-55d2b051-4678-4da7-9f0b-ed22f5a3c47c.png" />
 ## User Agent
 
 The User Agent is included in the device and therefore you  will rarely need to change it however if you do need to test a different user agent you can override it with the `userAgent` property.
 
-```js tab=js-ts
+```js tab=js-test title="tests/example.spec.ts"
 import { test, expect } from '@playwright/test';
-
-test.use({ userAgent: 'My user agent'});
-
-test('my user agent test', async ({ page }) => {
-  // ...
-});
-```
-
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
 
 test.use({ userAgent: 'My user agent' });
 
@@ -766,24 +717,49 @@ context = browser.new_context(
 ```
 
 ```csharp
-var context = await browser.NewContextAsync(new BrowserNewContextOptions { UserAgent = "My User Agent" });
+var context = await browser.NewContextAsync(new() { UserAgent = "My User Agent" });
+```
+
+## Offline
+
+Emulate the network being offline.
+
+```js title="playwright.config.ts"
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  use: {
+    offline: true
+  },
+});
+```
+
+```java
+BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+  .setOffline(true));
+```
+
+```python async
+context = await browser.new_context(
+  offline=True
+)
+```
+
+```python sync
+context = browser.new_context(
+  offline=True
+)
+```
+
+```csharp
+var context = await browser.NewContextAsync(new() { Offline = true });
 ```
 ## JavaScript Enabled
 
 Emulate a user scenario where JavaScript is disabled.
 
-```js tab=js-ts
+```js tab=js-test title="tests/example.spec.ts"
 import { test, expect } from '@playwright/test';
-
-test.use({ javaScriptEnabled: false });
-
-test('test with no JavaScript', async ({ page }) => {
-  // ...
-});
-```
-
-```js tab=js-js
-const { test, expect } = require('@playwright/test');
 
 test.use({ javaScriptEnabled: false });
 
@@ -796,4 +772,25 @@ test('test with no JavaScript', async ({ page }) => {
 const context = await browser.newContext({
   javaScriptEnabled: false
 });
+```
+
+```java
+BrowserContext context = browser.newContext(new Browser.NewContextOptions()
+  .javaScriptEnabled(false));
+```
+
+```python async
+context = await browser.new_context(
+  java_script_enabled=False
+)
+```
+
+```python sync
+context = browser.new_context(
+  java_script_enabled=False
+)
+```
+
+```csharp
+var context = await browser.NewContextAsync(new() { JavaScriptEnabled = false });
 ```

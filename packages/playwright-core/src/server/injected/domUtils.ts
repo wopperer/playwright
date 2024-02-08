@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 
+let browserNameForWorkarounds = '';
+export function setBrowserName(name: string) {
+  browserNameForWorkarounds = name;
+}
+
 export function isInsideScope(scope: Node, element: Element | undefined): boolean {
   while (element) {
     if (scope.contains(element))
@@ -21,6 +26,12 @@ export function isInsideScope(scope: Node, element: Element | undefined): boolea
     element = enclosingShadowHost(element);
   }
   return false;
+}
+
+export function enclosingElement(node: Node) {
+  if (node.nodeType === 1 /* Node.ELEMENT_NODE */)
+    return node as Element;
+  return node.parentElement ?? undefined;
 }
 
 export function parentElementOrShadowHost(element: Element): Element | undefined {
@@ -46,20 +57,51 @@ function enclosingShadowHost(element: Element): Element | undefined {
   return parentElementOrShadowHost(element);
 }
 
-export function closestCrossShadow(element: Element | undefined, css: string): Element | undefined {
+// Assumption: if scope is provided, element must be inside scope's subtree.
+export function closestCrossShadow(element: Element | undefined, css: string, scope?: Document | Element): Element | undefined {
   while (element) {
     const closest = element.closest(css);
+    if (scope && closest !== scope && closest?.contains(scope))
+      return;
     if (closest)
       return closest;
     element = enclosingShadowHost(element);
   }
 }
 
+export function getElementComputedStyle(element: Element, pseudo?: string): CSSStyleDeclaration | undefined {
+  return element.ownerDocument && element.ownerDocument.defaultView ? element.ownerDocument.defaultView.getComputedStyle(element, pseudo) : undefined;
+}
+
+export function isElementStyleVisibilityVisible(element: Element, style?: CSSStyleDeclaration): boolean {
+  style = style ?? getElementComputedStyle(element);
+  if (!style)
+    return true;
+  // Element.checkVisibility checks for content-visibility and also looks at
+  // styles up the flat tree including user-agent ShadowRoots, such as the
+  // details element for example.
+  // All the browser implement it, but WebKit has a bug which prevents us from using it:
+  // https://bugs.webkit.org/show_bug.cgi?id=264733
+  // @ts-ignore
+  if (Element.prototype.checkVisibility && browserNameForWorkarounds !== 'webkit') {
+    if (!element.checkVisibility({ checkOpacity: false, checkVisibilityCSS: false }))
+      return false;
+  } else {
+    // Manual workaround for WebKit that does not have checkVisibility.
+    const detailsOrSummary = element.closest('details,summary');
+    if (detailsOrSummary !== element && detailsOrSummary?.nodeName === 'DETAILS' && !(detailsOrSummary as HTMLDetailsElement).open)
+      return false;
+  }
+  if (style.visibility !== 'visible')
+    return false;
+  return true;
+}
+
 export function isElementVisible(element: Element): boolean {
   // Note: this logic should be similar to waitForDisplayedAtStablePosition() to avoid surprises.
-  if (!element.ownerDocument || !element.ownerDocument.defaultView)
+  const style = getElementComputedStyle(element);
+  if (!style)
     return true;
-  const style = element.ownerDocument.defaultView.getComputedStyle(element);
   if (style.display === 'contents') {
     // display:contents is not rendered itself, but its child nodes are.
     for (let child = element.firstChild; child; child = child.nextSibling) {
@@ -70,21 +112,15 @@ export function isElementVisible(element: Element): boolean {
     }
     return false;
   }
-  // Element.checkVisibility checks for content-visibility and also looks at
-  // styles up the flat tree including user-agent ShadowRoots, such as the
-  // details element for example.
-  // @ts-ignore Typescript doesn't know that checkVisibility exists yet.
-  if (Element.prototype.checkVisibility && !element.checkVisibility({ checkOpacity: false, checkVisibilityCSS: false }))
-    return false;
-  if (!style || style.visibility === 'hidden')
+  if (!isElementStyleVisibilityVisible(element, style))
     return false;
   const rect = element.getBoundingClientRect();
   return rect.width > 0 && rect.height > 0;
 }
 
-function isVisibleTextNode(node: Text) {
+export function isVisibleTextNode(node: Text) {
   // https://stackoverflow.com/questions/1461059/is-there-an-equivalent-to-getboundingclientrect-for-text-nodes
-  const range = document.createRange();
+  const range = node.ownerDocument.createRange();
   range.selectNode(node);
   const rect = range.getBoundingClientRect();
   return rect.width > 0 && rect.height > 0;

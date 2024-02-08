@@ -3,9 +3,11 @@ id: intro
 title: "Installation"
 ---
 
+## Introduction
+
 Playwright was created specifically to accommodate the needs of end-to-end testing. Playwright supports all modern rendering engines including Chromium, WebKit, and Firefox. Test on Windows, Linux, and macOS, locally or on CI, headless or headed with native mobile emulation.
 
-You can choose to use [NUnit base classes](./test-runners.md#nunit) or [MSTest base classes](./test-runners.md#nunit) that Playwright provides to write end-to-end tests. These classes support running tests on multiple browser engines, parallelizing tests, adjusting launch/context options and getting a [Page]/[BrowserContext] instance per test out of the box. Alternatively you can use the [library](./library.md) to manually write the testing infrastructure.
+You can choose to use [NUnit base classes](./test-runners.md#nunit) or [MSTest base classes](./test-runners.md#mstest) that Playwright provides to write end-to-end tests. These classes support running tests on multiple browser engines, parallelizing tests, adjusting launch/context options and getting a [Page]/[BrowserContext] instance per test out of the box. Alternatively you can use the [library](./library.md) to manually write the testing infrastructure.
 
 1. Start by creating a new project with `dotnet new`. This will create the `PlaywrightTests` directory which includes a `UnitTest1.cs` file:
 
@@ -67,7 +69,7 @@ dotnet add package Microsoft.Playwright.MSTest
 dotnet build
 ```
 
-4. Install required browsers by replacing `netX` with the actual output folder name, e.g. `net6.0`:
+4. Install required browsers by replacing `netX` with the actual output folder name, e.g. `net8.0`:
 
 ```bash
 pwsh bin/Debug/netX/playwright.ps1 install
@@ -89,7 +91,7 @@ Edit the `UnitTest1.cs` file with the code below to create an example end-to-end
 }>
 <TabItem value="nunit">
 
-```csharp
+```csharp title="UnitTest1.cs"
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Microsoft.Playwright;
@@ -128,7 +130,7 @@ public class Tests : PageTest
 </TabItem>
 <TabItem value="mstest">
 
-```csharp
+```csharp title="UnitTest1.cs"
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Microsoft.Playwright;
@@ -195,6 +197,13 @@ dotnet test -- MSTest.Parallelize.Workers=5
 </Tabs>
 
 See our doc on [Test Runners](./test-runners.md) to learn more about running tests in headed mode, running multiple tests, running specific configurations etc.
+
+## System requirements
+
+- Playwright is distributed as a .NET Standard 2.0 library. We recommend .NET 8.
+- Windows 10+, Windows Server 2016+ or Windows Subsystem for Linux (WSL).
+- MacOS 12 Monterey, MacOS 13 Ventura, or MacOS 14 Sonoma.
+- Debian 11, Debian 12, Ubuntu 20.04 or Ubuntu 22.04.
 
 ## What's next
 

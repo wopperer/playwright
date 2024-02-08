@@ -27,8 +27,8 @@ import { TimeoutSettings } from '../common/timeoutSettings';
 import { Waiter } from './waiter';
 import { EventEmitter } from 'events';
 import { Connection } from './connection';
-import { isSafeCloseError, kBrowserClosedError } from '../common/errors';
-import { raceAgainstTimeout } from '../utils/timeoutRunner';
+import { isTargetClosedError, TargetClosedError } from './errors';
+import { raceAgainstDeadline } from '../utils/timeoutRunner';
 import type { AndroidServerLauncherImpl } from '../androidServerImpl';
 
 type Direction = 'down' | 'up' | 'left' | 'right';
@@ -60,7 +60,7 @@ export class Android extends ChannelOwner<channels.AndroidChannel> implements ap
   async launchServer(options: types.LaunchServerOptions = {}): Promise<api.BrowserServer> {
     if (!this._serverLauncher)
       throw new Error('Launching server is not supported');
-    return this._serverLauncher.launchServer(options);
+    return await this._serverLauncher.launchServer(options);
   }
 
   async connect(wsEndpoint: string, options: Parameters<api.Android['connect']>[1] = {}): Promise<api.AndroidDevice> {
@@ -71,15 +71,15 @@ export class Android extends ChannelOwner<channels.AndroidChannel> implements ap
       const connectParams: channels.LocalUtilsConnectParams = { wsEndpoint, headers, slowMo: options.slowMo, timeout: options.timeout };
       const { pipe } = await localUtils._channel.connect(connectParams);
       const closePipe = () => pipe.close().catch(() => {});
-      const connection = new Connection(localUtils);
+      const connection = new Connection(localUtils, this._instrumentation);
       connection.markAsRemote();
       connection.on('close', closePipe);
 
       let device: AndroidDevice;
-      let closeError: string | undefined;
+      let closeError: Error | undefined;
       const onPipeClosed = () => {
         device?._didClose();
-        connection.close(closeError || kBrowserClosedError);
+        connection.close(closeError);
       };
       pipe.on('closed', onPipeClosed);
       connection.onmessage = message => pipe.send({ message }).catch(onPipeClosed);
@@ -88,12 +88,12 @@ export class Android extends ChannelOwner<channels.AndroidChannel> implements ap
         try {
           connection!.dispatch(message);
         } catch (e) {
-          closeError = e.toString();
+          closeError = e;
           closePipe();
         }
       });
 
-      const result = await raceAgainstTimeout(async () => {
+      const result = await raceAgainstDeadline(async () => {
         const playwright = await connection!.initializePlaywright();
         if (!playwright._initializer.preConnectedAndroidDevice) {
           closePipe();
@@ -103,7 +103,7 @@ export class Android extends ChannelOwner<channels.AndroidChannel> implements ap
         device._shouldCloseConnectionOnClose = true;
         device.on(Events.AndroidDevice.Close, closePipe);
         return device;
-      }, deadline ? deadline - monotonicTime() : 0);
+      }, deadline);
       if (!result.timedOut) {
         return result.result;
       } else {
@@ -175,7 +175,7 @@ export class AndroidDevice extends ChannelOwner<channels.AndroidDeviceChannel> i
     const webView = [...this._webViews.values()].find(predicate);
     if (webView)
       return webView;
-    return this.waitForEvent('webview', { ...options, predicate });
+    return await this.waitForEvent('webview', { ...options, predicate });
   }
 
   async wait(selector: api.AndroidSelector, options?: { state?: 'gone' } & types.TimeoutOptions) {
@@ -234,14 +234,18 @@ export class AndroidDevice extends ChannelOwner<channels.AndroidDeviceChannel> i
     return binary;
   }
 
+  async [Symbol.asyncDispose]() {
+    await this.close();
+  }
+
   async close() {
     try {
       if (this._shouldCloseConnectionOnClose)
-        this._connection.close(kBrowserClosedError);
+        this._connection.close();
       else
         await this._channel.close();
     } catch (e) {
-      if (isSafeCloseError(e))
+      if (isTargetClosedError(e))
         return;
       throw e;
     }
@@ -270,18 +274,20 @@ export class AndroidDevice extends ChannelOwner<channels.AndroidDeviceChannel> i
 
   async launchBrowser(options: types.BrowserContextOptions & { pkg?: string } = {}): Promise<BrowserContext> {
     const contextOptions = await prepareBrowserContextParams(options);
-    const { context } = await this._channel.launchBrowser(contextOptions);
-    return BrowserContext.from(context) as BrowserContext;
+    const result = await this._channel.launchBrowser(contextOptions);
+    const context = BrowserContext.from(result.context) as BrowserContext;
+    context._setOptions(contextOptions, {});
+    return context;
   }
 
   async waitForEvent(event: string, optionsOrPredicate: types.WaitForEventOptions = {}): Promise<any> {
-    return this._wrapApiCall(async () => {
+    return await this._wrapApiCall(async () => {
       const timeout = this._timeoutSettings.timeout(typeof optionsOrPredicate === 'function' ? {} : optionsOrPredicate);
       const predicate = typeof optionsOrPredicate === 'function' ? optionsOrPredicate : optionsOrPredicate.predicate;
       const waiter = Waiter.createForEvent(this, event);
       waiter.rejectOnTimeout(timeout, `Timeout ${timeout}ms exceeded while waiting for event "${event}"`);
       if (event !== Events.AndroidDevice.Close)
-        waiter.rejectOnEvent(this, Events.AndroidDevice.Close, new Error('Device closed'));
+        waiter.rejectOnEvent(this, Events.AndroidDevice.Close, () => new TargetClosedError());
       const result = await waiter.waitForEvent(this, event, predicate as any);
       waiter.dispose();
       return result;
@@ -307,11 +313,15 @@ export class AndroidSocket extends ChannelOwner<channels.AndroidSocketChannel> i
   async close(): Promise<void> {
     await this._channel.close();
   }
+
+  async [Symbol.asyncDispose]() {
+    await this.close();
+  }
 }
 
 async function loadFile(file: string | Buffer): Promise<Buffer> {
   if (isString(file))
-    return fs.promises.readFile(file);
+    return await fs.promises.readFile(file);
   return file;
 }
 
@@ -419,7 +429,7 @@ export class AndroidWebView extends EventEmitter implements api.AndroidWebView {
   async page(): Promise<Page> {
     if (!this._pagePromise)
       this._pagePromise = this._fetchPage();
-    return this._pagePromise;
+    return await this._pagePromise;
   }
 
   private async _fetchPage(): Promise<Page> {

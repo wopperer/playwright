@@ -14,18 +14,18 @@
  * limitations under the License.
  */
 
-import type { SvelteComponent } from 'svelte';
+import type { ComponentConstructorOptions, SvelteComponent } from 'svelte';
+import type { JsonObject } from '@playwright/experimental-ct-core/types/component';
 
-type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | JsonObject | JsonArray;
-type JsonArray = JsonValue[];
-type JsonObject = { [Key in string]?: JsonValue };
 export declare function beforeMount<HooksConfig extends JsonObject>(
-  callback: (params: { hooksConfig: HooksConfig }) => Promise<void>
+  callback: (params: {
+    hooksConfig?: HooksConfig,
+    App: new (options: Partial<ComponentConstructorOptions>) => SvelteComponent
+  }) => Promise<SvelteComponent | void>
 ): void;
 export declare function afterMount<HooksConfig extends JsonObject>(
   callback: (params: {
-    hooksConfig: HooksConfig;
+    hooksConfig?: HooksConfig;
     svelteComponent: SvelteComponent;
   }) => Promise<void>
 ): void;

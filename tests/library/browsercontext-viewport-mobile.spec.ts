@@ -41,7 +41,7 @@ it.describe('mobile viewport', () => {
     await context.close();
 
     function dispatchTouch() {
-      let fulfill;
+      let fulfill!: (s: string) => void;
       const promise = new Promise(x => fulfill = x);
       window.ontouchstart = function(e) {
         fulfill('Received touch');
@@ -59,7 +59,7 @@ it.describe('mobile viewport', () => {
     const context = await browser.newContext({ ...iPhone });
     const page = await context.newPage();
     await page.goto(server.PREFIX + '/detect-touch.html');
-    expect(await page.evaluate(() => document.body.textContent.trim())).toBe('YES');
+    expect(await page.evaluate(() => document.body.textContent!.trim())).toBe('YES');
     await context.close();
   });
 
@@ -68,7 +68,7 @@ it.describe('mobile viewport', () => {
     const page = await context.newPage();
     await page.goto(server.EMPTY_PAGE);
     await page.addScriptTag({ url: server.PREFIX + '/modernizr.js' });
-    expect(await page.evaluate(() => window['Modernizr'].touchevents)).toBe(true);
+    expect(await page.evaluate(() => (window as any)['Modernizr'].touchevents)).toBe(true);
     await context.close();
   });
 
@@ -164,7 +164,7 @@ it.describe('mobile viewport', () => {
     await page.goto(server.CROSS_PROCESS_PREFIX + '/mobile.html');
     await page.evaluate(() => {
       document.addEventListener('click', event => {
-        window['result'] = { x: event.clientX, y: event.clientY };
+        (window as any)['result'] = { x: event.clientX, y: event.clientY };
       });
     });
 
@@ -187,6 +187,49 @@ it.describe('mobile viewport', () => {
       expect(error.message).toContain('Mouse wheel is not supported in mobile WebKit');
     else
       await page.waitForFunction('window.scrollY === 100');
+    await context.close();
+  });
+
+  it('view scale should reset after navigation', async ({ browser, browserName }) => {
+    it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/26876' });
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 664 },
+      isMobile: true,
+    });
+    const page = await context.newPage();
+    await page.goto(`data:text/html,<meta name='viewport' content='device-width, initial-scale=1'><button>Mobile Viewport</button>`);
+    await page.route('**/button.html', route => {
+      void route.fulfill({
+        body: `<body>
+          <button>Click me</button>
+          <script>
+            window.clicks = [];
+            document.addEventListener('click', e => {
+              const dot = document.createElement('div');
+              dot.style.position = 'absolute';
+              dot.style.width = '10px';
+              dot.style.height = '10px';
+              dot.style.borderRadius = '5px';
+              dot.style.backgroundColor = 'red';
+              dot.style.left = e.pageX + 'px';
+              dot.style.top = e.pageY + 'px';
+              dot.textContent = 'x: ' + e.pageX + ' y: ' + e.pageY;
+              document.body.appendChild(dot);
+              window.clicks.push({ x: e.pageX, y: e.pageY });
+            });
+          </script>
+        </body>`,
+        contentType: 'text/html',
+      });
+    });
+    await page.goto('http://localhost/button.html');
+    await page.getByText('Click me').click({ force: true });
+    const box = (await page.locator('button').boundingBox())!;
+    const clicks = await page.evaluate(() => (window as any).clicks);
+    expect(clicks.length).toBe(1);
+    const [{ x, y }] = clicks;
+    const isClickInsideButton = box.x <= x && x <= box.x + box.width && box.y <= y && y <= box.y + box.height;
+    expect(isClickInsideButton).toBe(true);
     await context.close();
   });
 });

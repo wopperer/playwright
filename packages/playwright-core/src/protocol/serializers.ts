@@ -14,31 +14,7 @@
  * limitations under the License.
  */
 
-import { TimeoutError } from '../common/errors';
-import type { SerializedError, SerializedValue } from '@protocol/channels';
-
-export function serializeError(e: any): SerializedError {
-  if (isError(e))
-    return { error: { message: e.message, stack: e.stack, name: e.name } };
-  return { value: serializeValue(e, value => ({ fallThrough: value })) };
-}
-
-export function parseError(error: SerializedError): Error {
-  if (!error.error) {
-    if (error.value === undefined)
-      throw new Error('Serialized error must have either an error or a value');
-    return parseSerializedValue(error.value, undefined);
-  }
-  if (error.error.name === 'TimeoutError') {
-    const e = new TimeoutError(error.error.message);
-    e.stack = error.error.stack || '';
-    return e;
-  }
-  const e = new Error(error.error.message);
-  e.stack = error.error.stack || '';
-  e.name = error.error.name;
-  return e;
-}
+import type { SerializedValue } from '@protocol/channels';
 
 export function parseSerializedValue(value: SerializedValue, handles: any[] | undefined): any {
   return innerParseSerializedValue(value, handles, new Map());
@@ -71,6 +47,8 @@ function innerParseSerializedValue(value: SerializedValue, handles: any[] | unde
     return new Date(value.d);
   if (value.u !== undefined)
     return new URL(value.u);
+  if (value.bi !== undefined)
+    return BigInt(value.bi);
   if (value.r !== undefined)
     return new RegExp(value.r.p, value.r.f);
 
@@ -133,6 +111,8 @@ function innerSerializeValue(value: any, handleSerializer: (value: any) => Handl
     return { n: value };
   if (typeof value === 'string')
     return { s: value };
+  if (typeof value === 'bigint')
+    return { bi: value.toString() };
   if (isError(value)) {
     const error = value;
     if ('captureStackTrace' in globalThis.Error) {

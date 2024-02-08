@@ -26,10 +26,10 @@ export class Artifact extends ChannelOwner<channels.ArtifactChannel> {
     return (channel as any)._object;
   }
 
-  async pathAfterFinished(): Promise<string | null> {
+  async pathAfterFinished(): Promise<string> {
     if (this._connection.isRemote())
       throw new Error(`Path is not available when connecting remotely. Use saveAs() to save a local copy.`);
-    return (await this._channel.pathAfterFinished()).value || null;
+    return (await this._channel.pathAfterFinished()).value;
   }
 
   async saveAs(path: string): Promise<void> {
@@ -52,19 +52,31 @@ export class Artifact extends ChannelOwner<channels.ArtifactChannel> {
     return (await this._channel.failure()).error || null;
   }
 
-  async createReadStream(): Promise<Readable | null> {
+  async createReadStream(): Promise<Readable> {
     const result = await this._channel.stream();
-    if (!result.stream)
-      return null;
     const stream = Stream.from(result.stream);
     return stream.stream();
   }
 
+  async readIntoBuffer(): Promise<Buffer> {
+    const stream = (await this.createReadStream())!;
+    return await new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      stream.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+      stream.on('end', () => {
+        resolve(Buffer.concat(chunks));
+      });
+      stream.on('error', reject);
+    });
+  }
+
   async cancel(): Promise<void> {
-    return this._channel.cancel();
+    return await this._channel.cancel();
   }
 
   async delete(): Promise<void> {
-    return this._channel.delete();
+    return await this._channel.delete();
   }
 }

@@ -14,9 +14,8 @@
  * limitations under the License.
  */
 
-//@ts-check
+// @ts-check
 const path = require('path');
-const toKebabCase = require('lodash/kebabCase')
 const devices = require('../../packages/playwright-core/lib/server/deviceDescriptors');
 const md = require('../markdown');
 const docs = require('../doclint/documentation');
@@ -25,6 +24,7 @@ const fs = require('fs');
 const { parseOverrides } = require('./parseOverrides');
 const exported = require('./exported.json');
 const { parseApi } = require('../doclint/api_parser');
+const { docsLinkRendererForLanguage, renderPlaywrightDevLinks } = require('../doclint/linkUtils');
 
 Error.stackTraceLimit = 50;
 
@@ -53,6 +53,27 @@ class TypesGenerator {
     if (!options.includeExperimental)
       this.documentation.filterOutExperimental();
     this.documentation.copyDocsFromSuperclasses([]);
+    this.injectDisposeAsync();
+  }
+
+  injectDisposeAsync() {
+    for (const [name, clazz] of this.documentation.classes.entries()) {
+      /** @type {docs.Member | undefined} */
+      let newMember = undefined;
+      for (const [memberName, member] of clazz.members) {
+        if (memberName !== 'close' && memberName !== 'dispose')
+          continue;
+        if (!member.async)
+          continue;
+        newMember = new docs.Member('method', { langs: {}, since: '1.0', experimental: false }, '[Symbol.asyncDispose]', null, []);
+        newMember.async = true;
+        break;
+      }
+      if (newMember) {
+        clazz.membersArray = [...clazz.membersArray, newMember];
+        clazz.index();
+      }
+    }
   }
 
   /**
@@ -60,41 +81,15 @@ class TypesGenerator {
    * @returns {Promise<string>}
    */
   async generateTypes(overridesFile) {
-    const createMarkdownLink = (member, text) => {
-      const className = toKebabCase(member.clazz.name);
-      const memberName = toKebabCase(member.name);
-      let hash = null;
-      if (member.kind === 'property' || member.kind === 'method')
-        hash = `${className}-${memberName}`.toLowerCase();
-      else if (member.kind === 'event')
-        hash = `${className}-event-${memberName}`.toLowerCase();
-      return `[${text}](https://playwright.dev/docs/api/class-${member.clazz.name.toLowerCase()}#${hash})`;
-    };
-    this.documentation.setLinkRenderer(item => {
-      const { clazz, member, param, option } = item;
-      if (param)
-        return `\`${param}\``;
-      if (option)
-        return `\`${option}\``;
-      if (clazz)
-        return `[${clazz.name}]`;
-      if (!member || !member.clazz)
-        throw new Error('Internal error');
-      const className = member.clazz.varName === 'playwrightAssertions' ? '' : member.clazz.varName + '.';
-      if (member.kind === 'method')
-        return createMarkdownLink(member, `${className}${member.alias}(${this.renderJSSignature(member.argsArray)})`);
-      if (member.kind === 'event')
-        return createMarkdownLink(member, `${className}on('${member.alias.toLowerCase()}')`);
-      if (member.kind === 'property')
-        return createMarkdownLink(member, `${className}${member.alias}`);
-      throw new Error('Unknown member kind ' + member.kind);
-    });
+    this.documentation.setLinkRenderer(docsLinkRendererForLanguage('js'));
     this.documentation.setCodeGroupsTransformer('js', tabs => tabs.filter(tab => tab.value === 'ts').map(tab => tab.spec));
     this.documentation.generateSourceCodeComments();
 
     const handledClasses = new Set();
 
     let overrides = await parseOverrides(overridesFile, className => {
+      if (className === 'AsymmetricMatchers')
+        return '';
       const docClass = this.docClassForName(className);
       if (!docClass)
         return '';
@@ -103,7 +98,12 @@ class TypesGenerator {
     }, (className, methodName, overloadIndex) => {
       if (className === 'SuiteFunction' && methodName === '__call') {
         const cls = this.documentation.classes.get('Test');
-        const method = cls.membersArray.find(m => m.alias === 'describe' && m.overloadIndex === overloadIndex);
+        const method = cls.membersArray.find(m => m.alias === 'describe');
+        return this.memberJSDOC(method, '  ').trimLeft();
+      }
+      if (className === 'TestFunction' && methodName === '__call') {
+        const cls = this.documentation.classes.get('Test');
+        const method = cls.membersArray.find(m => m.alias === '(call)');
         return this.memberJSDOC(method, '  ').trimLeft();
       }
 
@@ -118,7 +118,7 @@ class TypesGenerator {
         return '';
       this.handledMethods.add(`${className}.${methodName}#${overloadIndex}`);
       if (!method) {
-        if (new Set(['on', 'addListener', 'off', 'removeListener', 'once', 'prependListener']).has(methodName))
+        if (new Set(['on', 'addListener', 'off', 'removeListener', 'once', 'prependListener', 'botName']).has(methodName))
           return '';
         throw new Error(`Unknown override method "${className}.${methodName}"`);
       }
@@ -216,8 +216,7 @@ class TypesGenerator {
     const shouldExport = !this.doNotExportClassNames.has(classDesc.name);
     parts.push(`${shouldExport ? 'export ' : ''}interface ${classDesc.name} ${classDesc.extends ? `extends ${classDesc.extends} ` : ''}{`);
     parts.push(this.classBody(classDesc));
-    parts.push('}\n');
-    return parts.join('\n');
+    return parts.join('\n') + '}\n';
   }
 
   /**
@@ -252,7 +251,7 @@ class TypesGenerator {
     const descriptions = [];
     for (let [eventName, value] of classDesc.events) {
       eventName = eventName.toLowerCase();
-      const type = this.stringifyComplexType(value && value.type, '', classDesc.name, eventName, 'payload');
+      const type = this.stringifyComplexType(value && value.type, 'out', '  ', classDesc.name, eventName, 'payload');
       const argName = this.argNameForType(type);
       const params = argName ? `${argName}: ${type}` : '';
       descriptions.push({
@@ -306,7 +305,7 @@ class TypesGenerator {
       }
       const jsdoc = this.memberJSDOC(member, indent);
       const args = this.argsFromMember(member, indent, classDesc.name);
-      let type = this.stringifyComplexType(member.type, indent, classDesc.name, member.alias);
+      let type = this.stringifyComplexType(member.type, 'out', indent, classDesc.name, member.alias);
       if (member.async)
         type = `Promise<${type}>`;
       // do this late, because we still want object definitions for overridden types
@@ -318,7 +317,7 @@ class TypesGenerator {
       }
       return `${jsdoc}${member.alias}${member.required ? '' : '?'}${args}: ${type};`
     }).filter(x => x).join('\n\n'));
-    return parts.join('\n');
+    return parts.join('\n') + '\n';
   }
 
   /**
@@ -361,7 +360,7 @@ class TypesGenerator {
           flavor = match[3];
           line = line.replace(/tab=js-\w+/, '').replace(/```\w+/, '```ts');
         }
-        skipExample = !["html", "yml", "bash", "js"].includes(lang) || flavor !== 'ts';
+        skipExample = !["html", "yml", "bash", "js", "txt"].includes(lang) || flavor !== 'ts';
       } else if (skipExample && line.trim().startsWith('```')) {
         skipExample = false;
         continue;
@@ -370,9 +369,7 @@ class TypesGenerator {
         pushLine(line);
     }
     comment = out.join('\n');
-    comment = comment.replace(/\[([^\]]+)\]\((\.[^\)]+)\)/g, (match, p1, p2) => {
-      return `[${p1}](${new URL(p2.replace('.md', ''), 'https://playwright.dev/docs/api/').toString()})`;
-    });
+    comment = renderPlaywrightDevLinks(comment, '', '/api');
 
     parts.push(indent + '/**');
     parts.push(...comment.split('\n').map(line => indent + ' * ' + line.replace(/\*\//g, '*\\/')));
@@ -381,12 +378,12 @@ class TypesGenerator {
   }
 
   /**
-   * @param {docs.Type} type
+   * @param {docs.Type|null} type
    */
-  stringifyComplexType(type, indent, ...namespace) {
+  stringifyComplexType(type, direction, indent, ...namespace) {
     if (!type)
       return 'void';
-    return this.stringifySimpleType(type, indent, ...namespace);
+    return this.stringifySimpleType(type, direction, indent, ...namespace);
   }
 
   /**
@@ -401,7 +398,7 @@ class TypesGenerator {
     parts.push(properties.map(member => {
       const comment = this.memberJSDOC(member, indent + '  ');
       const args = this.argsFromMember(member, indent + '  ', name);
-      const type = this.stringifyComplexType(member.type, indent + '  ', name, member.name);
+      const type = this.stringifyComplexType(member.type, 'out', indent + '  ', name, member.name);
       return `${comment}${this.nameForProperty(member)}${args}: ${type};`;
     }).join('\n\n'));
     parts.push(indent + '}');
@@ -409,21 +406,23 @@ class TypesGenerator {
   }
 
   /**
-   * @param {docs.Type=} type
+   * @param {docs.Type | null | undefined} type
+   * @param {'in' | 'out'} direction
    * @returns{string}
    */
-  stringifySimpleType(type, indent = '', ...namespace) {
+  stringifySimpleType(type, direction, indent = '', ...namespace) {
     if (!type)
       return 'void';
     if (type.name === 'Object' && type.templates) {
-      const keyType = this.stringifySimpleType(type.templates[0], indent, ...namespace);
-      const valueType = this.stringifySimpleType(type.templates[1], indent, ...namespace);
+      const keyType = this.stringifySimpleType(type.templates[0], direction, indent, ...namespace);
+      const valueType = this.stringifySimpleType(type.templates[1], direction, indent, ...namespace);
       return `{ [key: ${keyType}]: ${valueType}; }`;
     }
     let out = type.name;
     if (out === 'int' || out === 'float')
       out = 'number';
-
+    if (out === 'Array' && direction === 'in')
+      out = 'ReadonlyArray';
     if (type.name === 'Object' && type.properties && type.properties.length) {
       const name = namespace.map(n => n[0].toUpperCase() + n.substring(1)).join('');
       const shouldExport = exported[name];
@@ -439,10 +438,10 @@ class TypesGenerator {
 
     if (type.args) {
       const stringArgs = type.args.map(a => ({
-        type: this.stringifySimpleType(a, indent, ...namespace),
+        type: this.stringifySimpleType(a, direction, indent, ...namespace),
         name: a.name.toLowerCase()
       }));
-      out = `((${stringArgs.map(({ name, type }) => `${name}: ${type}`).join(', ')}) => ${this.stringifySimpleType(type.returnType, indent, ...namespace)})`;
+      out = `((${stringArgs.map(({ name, type }) => `${name}: ${type}`).join(', ')}) => ${this.stringifySimpleType(type.returnType, 'out', indent, ...namespace)})`;
     } else if (type.name === 'function') {
       out = 'Function';
     }
@@ -451,9 +450,9 @@ class TypesGenerator {
     if (out === 'Any')
       return 'any';
     if (type.templates)
-      out += '<' + type.templates.map(t => this.stringifySimpleType(t, indent, ...namespace)).join(', ') + '>';
+      out += '<' + type.templates.map(t => this.stringifySimpleType(t, direction, indent, ...namespace)).join(', ') + '>';
     if (type.union)
-      out = type.union.map(t => this.stringifySimpleType(t, indent, ...namespace)).join('|');
+      out = type.union.map(t => this.stringifySimpleType(t, direction, indent, ...namespace)).join('|');
     return out.trim();
   }
 
@@ -463,7 +462,7 @@ class TypesGenerator {
   argsFromMember(member, indent, ...namespace) {
     if (member.kind === 'property')
       return '';
-    return '(' + member.argsArray.map(arg => `${this.nameForProperty(arg)}: ${this.stringifyComplexType(arg.type, indent, ...namespace, member.alias, arg.alias)}`).join(', ') + ')';
+    return '(' + member.argsArray.map(arg => `${this.nameForProperty(arg)}: ${this.stringifyComplexType(arg.type, 'in', indent, ...namespace, member.alias, arg.alias)}`).join(', ') + ')';
   }
 
   /**
@@ -488,40 +487,13 @@ class TypesGenerator {
       return indent;
     return this.writeComment(lines.join('\n'), indent) + '\n' + indent;
   }
-
-  /**
-   * @param {docs.Member[]} args
-   */
-  renderJSSignature(args) {
-    const tokens = [];
-    let hasOptional = false;
-    for (const arg of args) {
-      const name = arg.alias;
-      const optional = !arg.required;
-      if (tokens.length) {
-        if (optional && !hasOptional)
-          tokens.push(`[, ${name}`);
-        else
-          tokens.push(`, ${name}`);
-      } else {
-        if (optional && !hasOptional)
-          tokens.push(`[${name}`);
-        else
-          tokens.push(`${name}`);
-      }
-      hasOptional = hasOptional || optional;
-    }
-    if (hasOptional)
-      tokens.push(']');
-    return tokens.join('');
-  }
 }
 
 (async function () {
   const coreDocumentation = parseApi(path.join(PROJECT_DIR, 'docs', 'src', 'api'));
   const testDocumentation = parseApi(path.join(PROJECT_DIR, 'docs', 'src', 'test-api'), path.join(PROJECT_DIR, 'docs', 'src', 'api', 'params.md'));
   const reporterDocumentation = parseApi(path.join(PROJECT_DIR, 'docs', 'src', 'test-reporter-api'));
-  const assertionClasses = new Set(['LocatorAssertions', 'PageAssertions', 'APIResponseAssertions', 'SnapshotAssertions', 'PlaywrightAssertions']);
+  const assertionClasses = new Set(['GenericAssertions', 'LocatorAssertions', 'PageAssertions', 'APIResponseAssertions', 'SnapshotAssertions', 'PlaywrightAssertions']);
 
   /**
    * @param {boolean} includeExperimental
@@ -570,6 +542,13 @@ class TypesGenerator {
         'TestOptions',
         'TestConfig.use',
         'TestProject.use',
+        'GenericAssertions.any',
+        'GenericAssertions.anything',
+        'GenericAssertions.arrayContaining',
+        'GenericAssertions.closeTo',
+        'GenericAssertions.objectContaining',
+        'GenericAssertions.stringContaining',
+        'GenericAssertions.stringMatching',
       ]),
       overridesToDocsClassMapping: new Map([
         ['TestType', 'Test'],
@@ -581,6 +560,7 @@ class TypesGenerator {
         ['PlaywrightTestOptions', 'TestOptions'],
         ['PlaywrightWorkerArgs', 'Fixtures'],
         ['PlaywrightTestArgs', 'Fixtures'],
+        ['AsymmetricMatchers', 'GenericAssertions'],
       ]),
       ignoreMissing: new Set([
         'FullConfig.configFile',
@@ -591,6 +571,7 @@ class TypesGenerator {
         'PlaywrightWorkerOptions.defaultBrowserType',
         'PlaywrightWorkerArgs.playwright',
         'Matchers',
+        'ExpectMatcherUtils',
       ]),
       doNotExportClassNames: new Set([...assertionClasses, 'TestProject']),
       includeExperimental,
@@ -637,23 +618,21 @@ class TypesGenerator {
     const existing = fs.readFileSync(filePath, 'utf8');
     if (existing === content)
       return;
-    hadChanges = true;
     console.error(`Writing //${path.relative(PROJECT_DIR, filePath)}`);
     fs.writeFileSync(filePath, content, 'utf8');
   }
 
-  let hadChanges = false;
   const coreTypesDir = path.join(PROJECT_DIR, 'packages', 'playwright-core', 'types');
   if (!fs.existsSync(coreTypesDir))
     fs.mkdirSync(coreTypesDir)
-  const testTypesDir = path.join(PROJECT_DIR, 'packages', 'playwright-test', 'types');
-  if (!fs.existsSync(testTypesDir))
-    fs.mkdirSync(testTypesDir)
+  const playwrightTypesDir = path.join(PROJECT_DIR, 'packages', 'playwright', 'types');
+  if (!fs.existsSync(playwrightTypesDir))
+    fs.mkdirSync(playwrightTypesDir)
   writeFile(path.join(coreTypesDir, 'protocol.d.ts'), fs.readFileSync(path.join(PROJECT_DIR, 'packages', 'playwright-core', 'src', 'server', 'chromium', 'protocol.d.ts'), 'utf8'), false);
   writeFile(path.join(coreTypesDir, 'types.d.ts'), await generateCoreTypes(false), true);
-  writeFile(path.join(testTypesDir, 'test.d.ts'), await generateTestTypes(false), true);
-  writeFile(path.join(testTypesDir, 'testReporter.d.ts'), await generateReporterTypes(false), true);
-  process.exit(hadChanges && process.argv.includes('--check-clean') ? 1 : 0);
+  writeFile(path.join(playwrightTypesDir, 'test.d.ts'), await generateTestTypes(false), true);
+  writeFile(path.join(playwrightTypesDir, 'testReporter.d.ts'), await generateReporterTypes(false), true);
+  process.exit(0);
 })().catch(e => {
   console.error(e);
   process.exit(1);

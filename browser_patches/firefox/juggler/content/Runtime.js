@@ -63,7 +63,6 @@ class Runtime {
     if (isWorker) {
       this._registerWorkerConsoleHandler();
     } else {
-      const {Services} = ChromeUtils.import("resource://gre/modules/Services.jsm");
       this._registerConsoleServiceListener(Services);
       this._registerConsoleAPIListener(Services);
     }
@@ -185,7 +184,13 @@ class Runtime {
         if (context._isIsolatedWorldContext())
           return false;
         const domWindow = context._domWindow;
-        return domWindow && domWindow.windowGlobalChild.innerWindowId === wrappedJSObject.innerID;
+        try {
+          // `windowGlobalChild` might be dead already; accessing it will throw an error, message in a console,
+          // and infinite recursion.
+          return domWindow && domWindow.windowGlobalChild.innerWindowId === wrappedJSObject.innerID;
+        } catch (e) {
+          return false;
+        }
       });
       if (!executionContext)
         return;
@@ -234,8 +239,8 @@ class Runtime {
       return {success: true, obj: obj.promiseValue};
     if (obj.promiseState === 'rejected') {
       const debuggee = executionContext._debuggee;
-      exceptionDetails.text = debuggee.executeInGlobalWithBindings('e.message', {e: obj.promiseReason}).return;
-      exceptionDetails.stack = debuggee.executeInGlobalWithBindings('e.stack', {e: obj.promiseReason}).return;
+      exceptionDetails.text = debuggee.executeInGlobalWithBindings('e.message', {e: obj.promiseReason}, {useInnerBindings: true}).return;
+      exceptionDetails.stack = debuggee.executeInGlobalWithBindings('e.stack', {e: obj.promiseReason}, {useInnerBindings: true}).return;
       return {success: false, obj: null};
     }
     let resolve, reject;
@@ -262,8 +267,8 @@ class Runtime {
       return;
     };
     const debuggee = pendingPromise.executionContext._debuggee;
-    pendingPromise.exceptionDetails.text = debuggee.executeInGlobalWithBindings('e.message', {e: obj.promiseReason}).return;
-    pendingPromise.exceptionDetails.stack = debuggee.executeInGlobalWithBindings('e.stack', {e: obj.promiseReason}).return;
+    pendingPromise.exceptionDetails.text = debuggee.executeInGlobalWithBindings('e.message', {e: obj.promiseReason}, {useInnerBindings: true}).return;
+    pendingPromise.exceptionDetails.stack = debuggee.executeInGlobalWithBindings('e.stack', {e: obj.promiseReason}, {useInnerBindings: true}).return;
     pendingPromise.resolve({success: false, obj: null});
   }
 
@@ -311,8 +316,9 @@ class ExecutionContext {
     this._id = generateId();
     this._auxData = auxData;
     this._jsonStringifyObject = this._debuggee.executeInGlobal(`((stringify, object) => {
-      const oldToJSON = Date.prototype.toJSON;
-      Date.prototype.toJSON = undefined;
+      const oldToJSON = Date.prototype?.toJSON;
+      if (oldToJSON)
+        Date.prototype.toJSON = undefined;
       const oldArrayToJSON = Array.prototype.toJSON;
       const oldArrayHadToJSON = Array.prototype.hasOwnProperty('toJSON');
       if (oldArrayHadToJSON)
@@ -325,7 +331,8 @@ class ExecutionContext {
         return value;
       });
 
-      Date.prototype.toJSON = oldToJSON;
+      if (oldToJSON)
+        Date.prototype.toJSON = oldToJSON;
       if (oldArrayHadToJSON)
         Array.prototype.toJSON = oldArrayToJSON;
 
@@ -434,7 +441,7 @@ class ExecutionContext {
   _instanceOf(debuggerObj, rawObj, className) {
     if (this._domWindow)
       return rawObj instanceof this._domWindow[className];
-    return this._debuggee.executeInGlobalWithBindings('o instanceof this[className]', {o: debuggerObj, className: this._debuggee.makeDebuggeeValue(className)}).return;
+    return this._debuggee.executeInGlobalWithBindings('o instanceof this[className]', {o: debuggerObj, className: this._debuggee.makeDebuggeeValue(className)}, {useInnerBindings: true}).return;
   }
 
   _createRemoteObject(debuggerObj) {
@@ -524,7 +531,7 @@ class ExecutionContext {
   }
 
   _serialize(obj) {
-    const result = this._debuggee.executeInGlobalWithBindings('stringify(e)', {e: obj, stringify: this._jsonStringifyObject});
+    const result = this._debuggee.executeInGlobalWithBindings('stringify(e)', {e: obj, stringify: this._jsonStringifyObject}, {useInnerBindings: true});
     if (result.throw)
       throw new Error('Object is not serializable');
     return result.return === undefined ? undefined : JSON.parse(result.return);
@@ -553,15 +560,12 @@ class ExecutionContext {
   }
 
   _getResult(completionValue, exceptionDetails = {}) {
-    if (!completionValue) {
-      exceptionDetails.text = 'Evaluation terminated!';
-      exceptionDetails.stack = '';
-      return {success: false, obj: null};
-    }
+    if (!completionValue)
+      throw new Error('evaluation terminated');
     if (completionValue.throw) {
-      if (this._debuggee.executeInGlobalWithBindings('e instanceof Error', {e: completionValue.throw}).return) {
-        exceptionDetails.text = this._debuggee.executeInGlobalWithBindings('e.message', {e: completionValue.throw}).return;
-        exceptionDetails.stack = this._debuggee.executeInGlobalWithBindings('e.stack', {e: completionValue.throw}).return;
+      if (this._debuggee.executeInGlobalWithBindings('e instanceof Error', {e: completionValue.throw}, {useInnerBindings: true}).return) {
+        exceptionDetails.text = this._debuggee.executeInGlobalWithBindings('e.message', {e: completionValue.throw}, {useInnerBindings: true}).return;
+        exceptionDetails.stack = this._debuggee.executeInGlobalWithBindings('e.stack', {e: completionValue.throw}, {useInnerBindings: true}).return;
       } else {
         exceptionDetails.value = this._serialize(completionValue.throw);
       }

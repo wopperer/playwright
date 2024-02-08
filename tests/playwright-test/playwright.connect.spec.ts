@@ -21,22 +21,38 @@ test('should work with connectOptions', async ({ runInlineTest }) => {
     'playwright.config.js': `
       module.exports = {
         globalSetup: './global-setup',
+        // outputDir is relative to the config file. Customers can have special characters in the path:
+        // See: https://github.com/microsoft/playwright/issues/24157
+        outputDir: 'Привет',
         use: {
           connectOptions: {
             wsEndpoint: process.env.CONNECT_WS_ENDPOINT,
           },
+          launchOptions: {
+            env: {
+              // Customers can have special characters: https://github.com/microsoft/playwright/issues/24157
+              RANDOM_TEST_SPECIAL: 'Привет',
+            }
+          }
         },
       };
     `,
     'global-setup.ts': `
+      import { chromium } from '@playwright/test';
       module.exports = async () => {
-        const server = await pwt.chromium.launchServer();
+        process.env.DEBUG = 'pw:browser';
+        process.env.PWTEST_SERVER_WS_HEADERS =
+          'x-playwright-debug-log: a-debug-log-string\\r\\n' +
+          'x-playwright-attachment: attachment-a=value-a\\r\\n' +
+          'x-playwright-debug-log: b-debug-log-string\\r\\n' +
+          'x-playwright-attachment: attachment-b=value-b';
+        const server = await chromium.launchServer();
         process.env.CONNECT_WS_ENDPOINT = server.wsEndpoint();
         return () => server.close();
       };
     `,
     'a.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test.use({ locale: 'fr-CH' });
       test('pass', async ({ page }) => {
         await page.setContent('<div>PASS</div>');
@@ -47,6 +63,20 @@ test('should work with connectOptions', async ({ runInlineTest }) => {
   });
   expect(result.exitCode).toBe(0);
   expect(result.passed).toBe(1);
+  expect(result.output).toContain('a-debug-log-string');
+  expect(result.output).toContain('b-debug-log-string');
+  expect(result.results[0].attachments).toEqual([
+    {
+      name: 'attachment-a',
+      contentType: 'text/plain',
+      body: 'dmFsdWUtYQ=='
+    },
+    {
+      name: 'attachment-b',
+      contentType: 'text/plain',
+      body: 'dmFsdWUtYg=='
+    }
+  ]);
 });
 
 test('should throw with bad connectOptions', async ({ runInlineTest }) => {
@@ -61,7 +91,7 @@ test('should throw with bad connectOptions', async ({ runInlineTest }) => {
       };
     `,
     'a.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('pass', async ({ page }) => {
         await page.setContent('<div>PASS</div>');
         await expect(page.locator('div')).toHaveText('PASS');
@@ -70,7 +100,7 @@ test('should throw with bad connectOptions', async ({ runInlineTest }) => {
   });
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
-  expect(result.output).toContain('browserType.launch:');
+  expect(result.output).toContain('browserType.connect:');
   expect(result.output).toContain('does-not-exist-bad-domain');
 });
 
@@ -80,19 +110,60 @@ test('should respect connectOptions.timeout', async ({ runInlineTest }) => {
       module.exports = {
         use: {
           connectOptions: {
-            wsEndpoint: 'wss://locahost:5678',
+            wsEndpoint: 'wss://localhost:5678',
             timeout: 1,
           },
         },
       };
     `,
     'a.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('pass', async ({ page }) => {
       });
     `,
   });
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(0);
-  expect(result.output).toContain('browserType.launch: Timeout 1ms exceeded.');
+  expect(result.output).toContain('browserType.connect: Timeout 1ms exceeded.');
+});
+
+test('should print debug log when failed to connect', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.js': `
+      module.exports = {
+        globalSetup: './global-setup',
+        use: {
+          connectOptions: {
+            wsEndpoint: process.env.CONNECT_WS_ENDPOINT,
+          },
+        },
+      };
+    `,
+    'global-setup.ts': `
+      import { chromium } from '@playwright/test';
+      import ws from 'ws';
+      import http from 'http';
+      module.exports = async () => {
+        const server = http.createServer(() => {});
+        server.on('upgrade', async (request, socket, head) => {
+          socket.write('HTTP/1.1 401 Unauthorized\\r\\nx-playwright-debug-log: b-debug-log-string\\r\\n\\r\\nUnauthorized body');
+          socket.destroy();
+        });
+        server.listen(0);
+        await new Promise(f => server.once('listening', f));
+        process.env.CONNECT_WS_ENDPOINT = 'ws://localhost:' + server.address().port;
+        return () => new Promise(f => server.close(f));
+      };
+    `,
+    'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+      test('fail', async ({ page }) => {
+        await page.setContent('<div>FAIL</div>');
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.failed).toBe(1);
+  expect(result.output).toContain('b-debug-log-string');
+  expect(result.results[0].attachments).toEqual([]);
 });

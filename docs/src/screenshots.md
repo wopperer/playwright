@@ -3,6 +3,8 @@ id: screenshots
 title: "Screenshots"
 ---
 
+## Introduction
+
 Here is a quick way to capture a screenshot and save it into a file:
 
 ```js
@@ -29,7 +31,7 @@ await Page.ScreenshotAsync(new()
 });
 ```
 
-Screenshots API accepts many parameters for image format, clip area, quality, etc. Make sure to check them out.
+[Screenshots API](./api/class-page#page-screenshot) accepts many parameters for image format, clip area, quality, etc. Make sure to check them out.
 
 <!-- TOC -->
 
@@ -75,7 +77,7 @@ console.log(buffer.toString('base64'));
 
 ```java
 byte[] buffer = page.screenshot();
-System.out.println(Base64.getEncoder().encode(buffer));
+System.out.println(Base64.getEncoder().encodeToString(buffer));
 ```
 
 ```python async

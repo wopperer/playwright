@@ -35,7 +35,7 @@ export const webView2Test = baseTest.extend<TraceViewerFixtures>(traceViewerFixt
   browser: [async ({ playwright }, use, testInfo) => {
     const cdpPort = 10000 + testInfo.workerIndex;
     const spawnedProcess = new TestChildProcess({
-      command: [path.join(__dirname, 'webview2-app/bin/Debug/net6.0-windows/webview2.exe')],
+      command: [path.join(__dirname, 'webview2-app/bin/Debug/net8.0-windows/webview2.exe')],
       shell: true,
       env: {
         ...process.env,
@@ -50,6 +50,6 @@ export const webView2Test = baseTest.extend<TraceViewerFixtures>(traceViewerFixt
     const browser = await playwright.chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
     await use(browser);
     await browser.close();
-    await spawnedProcess.close();
+    await spawnedProcess.kill('SIGINT');
   }, { scope: 'worker' }],
 });

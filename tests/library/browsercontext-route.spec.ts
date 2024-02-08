@@ -16,6 +16,7 @@
  */
 
 import { browserTest as it, expect } from '../config/browserTest';
+import type { Route } from '@playwright/test';
 
 it('should intercept', async ({ browser, server }) => {
   const context = await browser.newContext();
@@ -31,11 +32,11 @@ it('should intercept', async ({ browser, server }) => {
     expect(request.resourceType()).toBe('document');
     expect(request.frame() === page.mainFrame()).toBe(true);
     expect(request.frame().url()).toBe('about:blank');
-    route.continue();
+    void route.continue();
   });
   const page = await context.newPage();
   const response = await page.goto(server.EMPTY_PAGE);
-  expect(response.ok()).toBe(true);
+  expect(response!.ok()).toBe(true);
   expect(intercepted).toBe(true);
   await context.close();
 });
@@ -44,29 +45,29 @@ it('should unroute', async ({ browser, server }) => {
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  let intercepted = [];
+  let intercepted: number[] = [];
   await context.route('**/*', route => {
     intercepted.push(1);
-    route.fallback();
+    void route.fallback();
   });
   await context.route('**/empty.html', route => {
     intercepted.push(2);
-    route.fallback();
+    void route.fallback();
   });
   await context.route('**/empty.html', route => {
     intercepted.push(3);
-    route.fallback();
+    void route.fallback();
   });
-  const handler4 = route => {
+  const handler4 = (route: Route) => {
     intercepted.push(4);
-    route.fallback();
+    void route.fallback();
   };
-  await context.route('**/empty.html', handler4);
+  await context.route(/empty.html/, handler4);
   await page.goto(server.EMPTY_PAGE);
   expect(intercepted).toEqual([4, 3, 2, 1]);
 
   intercepted = [];
-  await context.unroute('**/empty.html', handler4);
+  await context.unroute(/empty.html/, handler4);
   await page.goto(server.EMPTY_PAGE);
   expect(intercepted).toEqual([3, 2, 1]);
 
@@ -81,13 +82,13 @@ it('should unroute', async ({ browser, server }) => {
 it('should yield to page.route', async ({ browser, server }) => {
   const context = await browser.newContext();
   await context.route('**/empty.html', route => {
-    route.fulfill({ status: 200, body: 'context' });
+    void route.fulfill({ status: 200, body: 'context' });
   });
   const page = await context.newPage();
   await page.route('**/empty.html', route => {
-    route.fulfill({ status: 200, body: 'page' });
+    void route.fulfill({ status: 200, body: 'page' });
   });
-  const response = await page.goto(server.EMPTY_PAGE);
+  const response = (await page.goto(server.EMPTY_PAGE))!;
   expect(response.ok()).toBe(true);
   expect(await response.text()).toBe('page');
   await context.close();
@@ -96,13 +97,13 @@ it('should yield to page.route', async ({ browser, server }) => {
 it('should fall back to context.route', async ({ browser, server }) => {
   const context = await browser.newContext();
   await context.route('**/empty.html', route => {
-    route.fulfill({ status: 200, body: 'context' });
+    void route.fulfill({ status: 200, body: 'context' });
   });
   const page = await context.newPage();
   await page.route('**/non-empty.html', route => {
-    route.fulfill({ status: 200, body: 'page' });
+    void route.fulfill({ status: 200, body: 'page' });
   });
-  const response = await page.goto(server.EMPTY_PAGE);
+  const response = (await page.goto(server.EMPTY_PAGE))!;
   expect(response.ok()).toBe(true);
   expect(await response.text()).toBe('context');
   await context.close();
@@ -112,7 +113,7 @@ it('should support Set-Cookie header', async ({ contextFactory, server, browserN
   const context = await contextFactory();
   const page = await context.newPage();
   await page.route('https://example.com/', (route, request) => {
-    route.fulfill({
+    void route.fulfill({
       headers: {
         'Set-Cookie': 'name=value; domain=.example.com; Path=/'
       },
@@ -139,7 +140,7 @@ it('should ignore secure Set-Cookie header for insecure requests', async ({ cont
   const context = await contextFactory();
   const page = await context.newPage();
   await page.route('http://example.com/', (route, request) => {
-    route.fulfill({
+    void route.fulfill({
       headers: {
         'Set-Cookie': 'name=value; domain=.example.com; Path=/; Secure'
       },
@@ -156,7 +157,7 @@ it('should use Set-Cookie header in future requests', async ({ contextFactory, s
   const page = await context.newPage();
 
   await page.route(server.EMPTY_PAGE, (route, request) => {
-    route.fulfill({
+    void route.fulfill({
       headers: {
         'Set-Cookie': 'name=value'
       },
@@ -178,7 +179,7 @@ it('should use Set-Cookie header in future requests', async ({ contextFactory, s
 
   let cookie = '';
   server.setRoute('/foo.html', (req, res) => {
-    cookie = req.headers.cookie;
+    cookie = req.headers.cookie!;
     res.end();
   });
   await page.goto(server.PREFIX + '/foo.html');
@@ -191,15 +192,15 @@ it('should work with ignoreHTTPSErrors', async ({ browser, httpsServer }) => {
 
   await page.route('**/*', route => route.continue());
   const response = await page.goto(httpsServer.EMPTY_PAGE);
-  expect(response.status()).toBe(200);
+  expect(response!.status()).toBe(200);
   await context.close();
 });
 
 it('should support the times parameter with route matching', async ({ context, page, server }) => {
-  const intercepted = [];
+  const intercepted: number[] = [];
   await context.route('**/empty.html', route => {
     intercepted.push(1);
-    route.continue();
+    void route.continue();
   }, { times: 1 });
   await page.goto(server.EMPTY_PAGE);
   await page.goto(server.EMPTY_PAGE);
@@ -207,10 +208,29 @@ it('should support the times parameter with route matching', async ({ context, p
   expect(intercepted).toHaveLength(1);
 });
 
+it('should work if handler with times parameter was removed from another handler', async ({ context, page, server }) => {
+  const intercepted = [];
+  const handler = async route => {
+    intercepted.push('first');
+    void route.continue();
+  };
+  await context.route('**/*', handler, { times: 1 });
+  await context.route('**/*', async route => {
+    intercepted.push('second');
+    await context.unroute('**/*', handler);
+    await route.fallback();
+  });
+  await page.goto(server.EMPTY_PAGE);
+  expect(intercepted).toEqual(['second']);
+  intercepted.length = 0;
+  await page.goto(server.EMPTY_PAGE);
+  expect(intercepted).toEqual(['second']);
+});
+
 it('should support async handler w/ times', async ({ context, page, server }) => {
   await context.route('**/empty.html', async route => {
     await new Promise(f => setTimeout(f, 100));
-    route.fulfill({
+    void route.fulfill({
       body: '<html>intercepted</html>',
       contentType: 'text/html'
     });
@@ -223,7 +243,7 @@ it('should support async handler w/ times', async ({ context, page, server }) =>
 
 it('should overwrite post body with empty string', async ({ context, server, page, browserName }) => {
   await context.route('**/empty.html', route => {
-    route.continue({
+    void route.continue({
       postData: '',
     });
   });
@@ -247,37 +267,37 @@ it('should overwrite post body with empty string', async ({ context, server, pag
 });
 
 it('should chain fallback', async ({ context, page, server }) => {
-  const intercepted = [];
+  const intercepted: number[] = [];
   await context.route('**/empty.html', route => {
     intercepted.push(1);
-    route.fallback();
+    void route.fallback();
   });
   await context.route('**/empty.html', route => {
     intercepted.push(2);
-    route.fallback();
+    void route.fallback();
   });
   await context.route('**/empty.html', route => {
     intercepted.push(3);
-    route.fallback();
+    void route.fallback();
   });
   await page.goto(server.EMPTY_PAGE);
   expect(intercepted).toEqual([3, 2, 1]);
 });
 
 it('should chain fallback w/ dynamic URL', async ({ context, page, server }) => {
-  const intercepted = [];
+  const intercepted: number[] = [];
   await context.route('**/bar', route => {
     intercepted.push(1);
-    route.fallback({ url: server.EMPTY_PAGE });
+    void route.fallback({ url: server.EMPTY_PAGE });
   });
   await context.route('**/foo', route => {
     intercepted.push(2);
-    route.fallback({ url: 'http://localhost/bar' });
+    void route.fallback({ url: 'http://localhost/bar' });
   });
 
   await context.route('**/empty.html', route => {
     intercepted.push(3);
-    route.fallback({ url: 'http://localhost/foo' });
+    void route.fallback({ url: 'http://localhost/foo' });
   });
 
   await page.goto(server.EMPTY_PAGE);
@@ -290,13 +310,13 @@ it('should not chain fulfill', async ({ context, page, server }) => {
     failed = true;
   });
   await context.route('**/empty.html', route => {
-    route.fulfill({ status: 200, body: 'fulfilled' });
+    void route.fulfill({ status: 200, body: 'fulfilled' });
   });
   await context.route('**/empty.html', route => {
-    route.fallback();
+    void route.fallback();
   });
   const response = await page.goto(server.EMPTY_PAGE);
-  const body = await response.body();
+  const body = await response!.body();
   expect(body.toString()).toEqual('fulfilled');
   expect(failed).toBeFalsy();
 });
@@ -307,10 +327,10 @@ it('should not chain abort', async ({ context, page, server }) => {
     failed = true;
   });
   await context.route('**/empty.html', route => {
-    route.abort();
+    void route.abort();
   });
   await context.route('**/empty.html', route => {
-    route.fallback();
+    void route.fallback();
   });
   const e = await page.goto(server.EMPTY_PAGE).catch(e => e);
   expect(e).toBeTruthy();
@@ -318,51 +338,51 @@ it('should not chain abort', async ({ context, page, server }) => {
 });
 
 it('should chain fallback into page', async ({ context, page, server }) => {
-  const intercepted = [];
+  const intercepted: number[] = [];
   await context.route('**/empty.html', route => {
     intercepted.push(1);
-    route.fallback();
+    void route.fallback();
   });
   await context.route('**/empty.html', route => {
     intercepted.push(2);
-    route.fallback();
+    void route.fallback();
   });
   await context.route('**/empty.html', route => {
     intercepted.push(3);
-    route.fallback();
+    void route.fallback();
   });
   await page.route('**/empty.html', route => {
     intercepted.push(4);
-    route.fallback();
+    void route.fallback();
   });
   await page.route('**/empty.html', route => {
     intercepted.push(5);
-    route.fallback();
+    void route.fallback();
   });
   await page.route('**/empty.html', route => {
     intercepted.push(6);
-    route.fallback();
+    void route.fallback();
   });
   await page.goto(server.EMPTY_PAGE);
   expect(intercepted).toEqual([6, 5, 4, 3, 2, 1]);
 });
 
 it('should fall back async', async ({ page, context, server }) => {
-  const intercepted = [];
+  const intercepted: number[] = [];
   await context.route('**/empty.html', async route => {
     intercepted.push(1);
     await new Promise(r => setTimeout(r, 100));
-    route.fallback();
+    void route.fallback();
   });
   await context.route('**/empty.html', async route => {
     intercepted.push(2);
     await new Promise(r => setTimeout(r, 100));
-    route.fallback();
+    void route.fallback();
   });
   await context.route('**/empty.html', async route => {
     intercepted.push(3);
     await new Promise(r => setTimeout(r, 100));
-    route.fallback();
+    void route.fallback();
   });
   await page.goto(server.EMPTY_PAGE);
   expect(intercepted).toEqual([3, 2, 1]);

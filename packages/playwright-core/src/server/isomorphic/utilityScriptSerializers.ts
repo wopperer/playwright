@@ -19,6 +19,7 @@ export type SerializedValue =
     { v: 'null' | 'undefined' | 'NaN' | 'Infinity' | '-Infinity' | '-0' } |
     { d: string } |
     { u: string } |
+    { bi: string } |
     { r: { p: string, f: string} } |
     { a: SerializedValue[], id: number } |
     { o: { k: string, v: SerializedValue }[], id: number } |
@@ -35,15 +36,27 @@ type VisitorInfo = {
 export function source() {
 
   function isRegExp(obj: any): obj is RegExp {
-    return obj instanceof RegExp || Object.prototype.toString.call(obj) === '[object RegExp]';
+    try {
+      return obj instanceof RegExp || Object.prototype.toString.call(obj) === '[object RegExp]';
+    } catch (error) {
+      return false;
+    }
   }
 
   function isDate(obj: any): obj is Date {
-    return obj instanceof Date || Object.prototype.toString.call(obj) === '[object Date]';
+    try {
+      return obj instanceof Date || Object.prototype.toString.call(obj) === '[object Date]';
+    } catch (error) {
+      return false;
+    }
   }
 
   function isURL(obj: any): obj is URL {
-    return obj instanceof URL || Object.prototype.toString.call(obj) === '[object URL]';
+    try {
+      return obj instanceof URL || Object.prototype.toString.call(obj) === '[object URL]';
+    } catch (error) {
+      return false;
+    }
   }
 
   function isError(obj: any): obj is Error {
@@ -79,6 +92,8 @@ export function source() {
         return new Date(value.d);
       if ('u' in value)
         return new URL(value.u);
+      if ('bi' in value)
+        return BigInt(value.bi);
       if ('r' in value)
         return new RegExp(value.r.p, value.r.f);
       if ('a' in value) {
@@ -145,12 +160,14 @@ export function source() {
       return value;
     if (typeof value === 'string')
       return value;
+    if (typeof value === 'bigint')
+      return { bi: value.toString() };
 
     if (isError(value)) {
       const error = value;
-      if ('captureStackTrace' in globalThis.Error) {
+      if (error.stack?.startsWith(error.name + ': ' + error.message)) {
         // v8
-        return error.stack || '';
+        return error.stack;
       }
       return `${error.name}: ${error.message}\n${error.stack}`;
     }
@@ -191,9 +208,15 @@ export function source() {
           o.push({ k: name, v: serialize(item, handleSerializer, visitorInfo) });
       }
 
-      // If Object.keys().length === 0 we fall back to toJSON if it exists
-      if (o.length === 0 && value.toJSON && typeof value.toJSON === 'function')
-        return innerSerialize(value.toJSON(), handleSerializer, visitorInfo);
+      let jsonWrapper;
+      try {
+        // If Object.keys().length === 0 we fall back to toJSON if it exists
+        if (o.length === 0 && value.toJSON && typeof value.toJSON === 'function')
+          jsonWrapper = { value: value.toJSON() };
+      } catch (e) {
+      }
+      if (jsonWrapper)
+        return innerSerialize(jsonWrapper.value, handleSerializer, visitorInfo);
 
       return { o, id };
     }

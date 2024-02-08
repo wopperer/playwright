@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-import http from 'http';
+import type http from 'http';
 import path from 'path';
-import { test, expect } from './playwright-test-fixtures';
+import { test, expect, parseTestRunnerOutput } from './playwright-test-fixtures';
+import { createHttpServer } from '../../packages/playwright-core/lib/utils/network';
 
 const SIMPLE_SERVER_PATH = path.join(__dirname, 'assets', 'simple-server.js');
 
@@ -24,7 +25,7 @@ test('should create a server', async ({ runInlineTest }, { workerIndex }) => {
   const port = workerIndex * 2 + 10500;
   const result = await runInlineTest({
     'test.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('connect to the server via the baseURL', async ({baseURL, page}) => {
         await page.goto('/hello');
         await page.waitForURL('/hello');
@@ -43,7 +44,7 @@ test('should create a server', async ({ runInlineTest }, { workerIndex }) => {
       };
     `,
     'globalSetup.ts': `
-      const { expect } = pwt;
+      import { expect } from '@playwright/test';
       module.exports = async (config) => {
         expect(config.webServer.port, "For backwards compatibility reasons, we ensure this shows up.").toBe(${port});
         const http = require("http");
@@ -88,13 +89,17 @@ test('should create a server', async ({ runInlineTest }, { workerIndex }) => {
 
 test('should create a server with environment variables', async ({ runInlineTest }, { workerIndex }) => {
   const port = workerIndex * 2 + 10500;
+  process.env['FOOEXTERNAL'] = 'EXTERNAL-BAR';
   const result = await runInlineTest({
     'test.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('connect to the server', async ({baseURL, page}) => {
         expect(baseURL).toBe('http://localhost:${port}');
         await page.goto(baseURL + '/env-FOO');
         expect(await page.textContent('body')).toBe('BAR');
+
+        await page.goto(baseURL + '/env-FOOEXTERNAL');
+        expect(await page.textContent('body')).toBe('EXTERNAL-BAR');
       });
     `,
     'playwright.config.ts': `
@@ -114,6 +119,7 @@ test('should create a server with environment variables', async ({ runInlineTest
   expect(result.output).toContain('[WebServer] listening');
   expect(result.output).toContain('[WebServer] error from server');
   expect(result.report.suites[0].specs[0].tests[0].results[0].status).toContain('passed');
+  delete process.env['FOOEXTERNAL'];
 });
 
 test('should default cwd to config directory', async ({ runInlineTest }, testInfo) => {
@@ -122,7 +128,7 @@ test('should default cwd to config directory', async ({ runInlineTest }, testInf
   const relativeSimpleServerPath = path.relative(configDir, SIMPLE_SERVER_PATH);
   const result = await runInlineTest({
     'foo/test.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('connect to the server', async ({ baseURL }) => {
         expect(baseURL).toBe('http://localhost:${port}');
       });
@@ -150,7 +156,7 @@ test('should resolve cwd wrt config directory', async ({ runInlineTest }, testIn
   const relativeSimpleServerPath = path.relative(testdir, SIMPLE_SERVER_PATH);
   const result = await runInlineTest({
     'foo/test.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('connect to the server', async ({ baseURL }) => {
         expect(baseURL).toBe('http://localhost:${port}');
       });
@@ -178,7 +184,7 @@ test('should create a server with url', async ({ runInlineTest }, { workerIndex 
   const port = workerIndex * 2 + 10500;
   const result = await runInlineTest({
     'test.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('connect to the server', async ({baseURL, page}) => {
         expect(baseURL).toBe(undefined);
         await page.goto('http://localhost:${port}/ready');
@@ -203,7 +209,7 @@ test('should time out waiting for a server', async ({ runInlineTest }, { workerI
   const port = workerIndex * 2 + 10500;
   const result = await runInlineTest({
     'test.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('connect to the server', async ({baseURL, page}) => {
         expect(baseURL).toBe('http://localhost:${port}');
         await page.goto(baseURL + '/hello');
@@ -228,7 +234,7 @@ test('should time out waiting for a server with url', async ({ runInlineTest }, 
   const port = workerIndex * 2 + 10500;
   const result = await runInlineTest({
     'test.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('connect to the server', async ({baseURL, page}) => {
         expect(baseURL).toBe('http://localhost:${port}/ready');
         await page.goto(baseURL);
@@ -251,13 +257,13 @@ test('should time out waiting for a server with url', async ({ runInlineTest }, 
 
 test('should be able to specify the baseURL without the server', async ({ runInlineTest }, { workerIndex }) => {
   const port = workerIndex * 2 + 10500;
-  const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
+  const server = createHttpServer((req: http.IncomingMessage, res: http.ServerResponse) => {
     res.end('<html><body>hello</body></html>');
   });
   await new Promise<void>(resolve => server.listen(port, resolve));
   const result = await runInlineTest({
     'test.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('connect to the server', async ({baseURL, page}) => {
         expect(baseURL).toBe('http://localhost:${port}');
         await page.goto(baseURL + '/hello');
@@ -281,13 +287,13 @@ test('should be able to specify the baseURL without the server', async ({ runInl
 test('should be able to specify a custom baseURL with the server', async ({ runInlineTest }, { workerIndex }) => {
   const customWebServerPort = workerIndex * 2 + 10500;
   const webServerPort = customWebServerPort + 1;
-  const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
+  const server = createHttpServer((req: http.IncomingMessage, res: http.ServerResponse) => {
     res.end('<html><body>hello</body></html>');
   });
   await new Promise<void>(resolve => server.listen(customWebServerPort, resolve));
   const result = await runInlineTest({
     'test.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('connect to the server', async ({baseURL, page}) => {
         expect(baseURL).toBe('http://localhost:${customWebServerPort}');
         await page.goto(baseURL + '/hello');
@@ -314,13 +320,13 @@ test('should be able to specify a custom baseURL with the server', async ({ runI
 
 test('should be able to use an existing server when reuseExistingServer:true', async ({ runInlineTest }, { workerIndex }) => {
   const port = workerIndex * 2 + 10500;
-  const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
+  const server = createHttpServer((req: http.IncomingMessage, res: http.ServerResponse) => {
     res.end('<html><body>hello</body></html>');
   });
   await new Promise<void>(resolve => server.listen(port, resolve));
   const result = await runInlineTest({
     'test.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('connect to the server via the baseURL', async ({baseURL, page}) => {
         await page.goto('/hello');
         await page.waitForURL('/hello');
@@ -347,13 +353,13 @@ test('should be able to use an existing server when reuseExistingServer:true', a
 
 test('should throw when a server is already running on the given port and strict is true', async ({ runInlineTest }, { workerIndex }) => {
   const port = workerIndex * 2 + 10500;
-  const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
+  const server = createHttpServer((req: http.IncomingMessage, res: http.ServerResponse) => {
     res.end('<html><body>hello</body></html>');
   });
   await new Promise<void>(resolve => server.listen(port, resolve));
   const result = await runInlineTest({
     'test.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('connect to the server via the baseURL', async ({baseURL, page}) => {
         await page.goto('/hello');
         await page.waitForURL('/hello');
@@ -379,14 +385,14 @@ test('should throw when a server is already running on the given port and strict
 for (const host of ['localhost', '127.0.0.1', '0.0.0.0']) {
   test(`should detect the server if a web-server is already running on ${host}`, async ({ runInlineTest }, { workerIndex }) => {
     const port = workerIndex * 2 + 10500;
-    const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
+    const server = createHttpServer((req: http.IncomingMessage, res: http.ServerResponse) => {
       res.end('<html><body>hello</body></html>');
     });
     await new Promise<void>(resolve => server.listen(port, host, resolve));
     try {
       const result = await runInlineTest({
         'test.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('connect to the server via the baseURL', async ({baseURL, page}) => {
         await page.goto('/hello');
         expect(await page.textContent('body')).toBe('hello');
@@ -413,7 +419,7 @@ for (const host of ['localhost', '127.0.0.1', '0.0.0.0']) {
 test(`should support self signed certificate`, async ({ runInlineTest, httpsServer }) => {
   const result = await runInlineTest({
     'test.spec.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('pass', async ({}) => { });
     `,
     'playwright.config.js': `
@@ -437,7 +443,7 @@ test('should send Accept header', async ({ runInlineTest, server }) => {
   });
   const result = await runInlineTest({
     'test.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('connect to the server', async ({baseURL, page}) => {
         await page.goto('http://localhost:${server.PORT}/hello');
         expect(await page.textContent('body')).toBe('hello');
@@ -457,11 +463,37 @@ test('should send Accept header', async ({ runInlineTest, server }) => {
   expect(acceptHeader).toBe('*/*');
 });
 
+test('should follow redirects', async ({ runInlineTest, server }) => {
+  server.setRedirect('/redirect', '/redirected-to');
+  server.setRoute('/redirected-to', (req, res) => {
+    res.end('<html><body>hello</body></html>');
+  });
+  const result = await runInlineTest({
+    'test.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('connect to the server', async ({baseURL, page}) => {
+        await page.goto('http://localhost:${server.PORT}/redirect');
+        expect(await page.textContent('body')).toBe('hello');
+      });
+    `,
+    'playwright.config.ts': `
+      module.exports = {
+        webServer: {
+          command: 'node ${JSON.stringify(SIMPLE_SERVER_PATH)} ${server.PORT}',
+          url: 'http://localhost:${server.PORT}/redirect',
+          reuseExistingServer: true,
+        }
+      };
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+});
+
 test('should create multiple servers', async ({ runInlineTest }, { workerIndex }) => {
   const port = workerIndex * 2 + 10500;
   const result = await runInlineTest({
     'test.spec.ts': `
-        const { test } = pwt;
+        import { test, expect } from '@playwright/test';
 
         test('connect to the server', async ({page}) => {
           await page.goto('http://localhost:${port}/port');
@@ -488,7 +520,7 @@ test('should create multiple servers', async ({ runInlineTest }, { workerIndex }
         };
         `,
     'globalSetup.ts': `
-        const { expect } = pwt;
+        import { expect } from '@playwright/test';
         module.exports = async (config) => {
           expect(config.webServer, "The public API defines this type as singleton or null, so if using array style we fallback to null to avoid having the type lie to the user.").toBe(null);
           const http = require("http");
@@ -536,13 +568,13 @@ test.describe('baseURL with plugins', () => {
     const port = workerIndex * 2 + 10500;
     const result = await runInlineTest({
       'test.spec.ts': `
-        const { test } = pwt;
+        import { test, expect } from '@playwright/test';
         test('connect to the server', async ({baseURL, page}) => {
           expect(baseURL).toBeUndefined();
         });
       `,
       'playwright.config.ts': `
-        import { webServer } from '@playwright/test/lib/plugins';
+        import { webServer } from 'playwright/lib/plugins';
         module.exports = {
           _plugins: [
             webServer({
@@ -561,13 +593,13 @@ test.describe('baseURL with plugins', () => {
     const port = workerIndex * 2 + 10500;
     const result = await runInlineTest({
       'test.spec.ts': `
-        const { test } = pwt;
+        import { test, expect } from '@playwright/test';
         test('connect to the server', async ({baseURL, page}) => {
           expect(baseURL).toBe('http://localhost:${port}');
         });
       `,
       'playwright.config.ts': `
-        import { webServer } from '@playwright/test/lib/plugins';
+        import { webServer } from 'playwright/lib/plugins';
         module.exports = {
           webServer: {
             command: 'node ${JSON.stringify(SIMPLE_SERVER_PATH)} ${port}',
@@ -591,7 +623,7 @@ test('should treat 3XX as available server', async ({ runInlineTest }, { workerI
   const port = workerIndex * 2 + 10500;
   const result = await runInlineTest({
     'test.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('pass', async ({}) => {});
     `,
     'playwright.config.ts': `
@@ -607,4 +639,107 @@ test('should treat 3XX as available server', async ({ runInlineTest }, { workerI
   expect(result.passed).toBe(1);
   expect(result.output).toContain('[WebServer] listening');
   expect(result.output).toContain('[WebServer] error from server');
+});
+
+test('should check ipv4 and ipv6 with happy eyeballs when URL is passed', async ({ runInlineTest }, { workerIndex }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20784' });
+  const port = workerIndex * 2 + 10500;
+  const result = await runInlineTest({
+    'test.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({}) => {});
+    `,
+    'playwright.config.ts': `
+      module.exports = {
+        webServer: {
+          command: 'node -e "require(\\'http\\').createServer((req, res) => res.end()).listen(${port}, \\'127.0.0.1\\')"',
+          url: 'http://localhost:${port}/',
+        }
+      };
+    `,
+  }, {}, { DEBUG: 'pw:webserver' });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.output).toContain('Process started');
+  expect(result.output).toContain(`HTTP HEAD: http://localhost:${port}/`);
+  expect(result.output).toContain('WebServer available');
+});
+
+test('should forward stdout when set to "pipe"', async ({ runInlineTest }, { workerIndex }) => {
+  const port = workerIndex * 2 + 10500;
+  const result = await runInlineTest({
+    'test.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({}) => {});
+    `,
+    'playwright.config.ts': `
+      module.exports = {
+        webServer: {
+          command: 'node ${JSON.stringify(SIMPLE_SERVER_PATH)} ${port}',
+          port: ${port},
+          stdout: 'pipe',
+        }
+      };
+    `,
+  }, undefined);
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.output).toContain('[WebServer] listening');
+  expect(result.output).toContain('[WebServer] error from server'); // stderr is piped by default
+});
+
+test('should be able to ignore "stderr"', async ({ runInlineTest }, { workerIndex }) => {
+  const port = workerIndex * 2 + 10500;
+  const result = await runInlineTest({
+    'test.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({}) => {});
+    `,
+    'playwright.config.ts': `
+      module.exports = {
+        webServer: {
+          command: 'node ${JSON.stringify(SIMPLE_SERVER_PATH)} ${port}',
+          port: ${port},
+          stderr: 'ignore',
+        }
+      };
+    `,
+  }, undefined);
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.output).not.toContain('error from server');
+});
+
+test('should forward stdout when set to "pipe" before server is ready', async ({ interactWithTestRunner }) => {
+  test.skip(process.platform === 'win32', 'No sending SIGINT on Windows');
+
+  const testProcess = await interactWithTestRunner({
+    'web-server.js': `
+      console.log('output from server');
+      console.log('\\n%%SEND-SIGINT%%');
+      setTimeout(() => {}, 10000000);
+    `,
+    'test.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('pass', async ({}) => {});
+    `,
+    'playwright.config.ts': `
+      module.exports = {
+        webServer: {
+          command: 'node web-server.js',
+          port: 12345,
+          stdout: 'pipe',
+          timeout: 3000,
+        },
+      };
+    `,
+  }, { workers: 1 });
+  await testProcess.waitForOutput('%%SEND-SIGINT%%');
+  process.kill(-testProcess.process.pid!, 'SIGINT');
+  await testProcess.exited;
+
+  const result = parseTestRunnerOutput(testProcess.output);
+  expect(result.passed).toBe(0);
+  expect(result.output).toContain('[WebServer] output from server');
+  expect(result.output).not.toContain('Timed out waiting 3000ms');
 });

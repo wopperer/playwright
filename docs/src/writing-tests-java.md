@@ -1,7 +1,9 @@
 ---
 id: writing-tests
-title: "Writing Tests"
+title: "Writing tests"
 ---
+
+## Introduction
 
 Playwright assertions are created specifically for the dynamic web. Checks are automatically retried until the necessary conditions are met. Playwright comes with [auto-wait](./actionability.md) built in meaning it waits for elements to be actionable prior to performing actions. Playwright provides [assertThat](./test-assertions.md) overloads to write assertions.
 
@@ -35,8 +37,9 @@ public class App {
             // Click the get started link.
             getStarted.click();
 
-            // Expects the URL to contain intro.
-            assertThat(page).hasURL(Pattern.compile(".*intro"));
+            // Expects page to have a heading with the name of Installation.
+            assertThat(page.getByRole(AriaRole.HEADING,
+               new Page.GetByRoleOptions().setName("Installation"))).isVisible();
         }
     }
 }

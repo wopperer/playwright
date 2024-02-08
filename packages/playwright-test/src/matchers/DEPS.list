@@ -1,6 +1,0 @@
-[*]
-../common/
-../expect.ts
-../globals.ts
-../testInfo.ts
-../util.ts

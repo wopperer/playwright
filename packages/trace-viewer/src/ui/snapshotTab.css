@@ -20,7 +20,12 @@
   flex-direction: column;
   align-items: stretch;
   outline: none;
-  --window-header-height: 40px;
+  --browser-frame-header-height: 40px;
+  overflow: hidden;
+}
+
+.snapshot-tab .toolbar {
+  background-color: var(--vscode-sideBar-background);
 }
 
 .snapshot-controls {
@@ -56,7 +61,7 @@
 }
 
 .snapshot-tab:focus .snapshot-toggle.toggled {
-  background: var(--blue);
+  background: var(--vscode-charts-blue);
 }
 
 .snapshot-wrapper {
@@ -71,11 +76,25 @@
   box-shadow: 0 12px 28px 0 rgba(0,0,0,.2),0 2px 4px 0 rgba(0,0,0,.1);
 }
 
-iframe#snapshot {
+.snapshot-switcher {
   width: 100%;
-  height: calc(100% - var(--window-header-height));
+  height: calc(100% - var(--browser-frame-header-height));
+  position: relative;
+}
+
+iframe[name=snapshot] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   border: none;
   background: white;
+  visibility: hidden;
+}
+
+iframe.snapshot-visible[name=snapshot] {
+  visibility: visible;
 }
 
 .no-snapshot {
@@ -85,65 +104,28 @@ iframe#snapshot {
 
 .popout-icon {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  color: var(--gray);
+  top: 0;
+  right: 0;
+  color: var(--vscode-sideBarTitle-foreground);
   font-size: 14px;
+  z-index: 100;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
 }
 
 .popout-icon:not(.popout-disabled):hover {
-  color: var(--blue);
+  color: var(--vscode-foreground);
 }
 
 .popout-icon.popout-disabled {
-  opacity: 0.7;
+  opacity: var(--vscode-disabledForeground);
 }
 
-.window-dot {
-  border-radius: 50%;
-  display: inline-block;
-  height: 12px;
-  margin-right: 6px;
-  margin-top: 4px;
-  width: 12px;
-}
-
-.window-address-bar {
-  background-color: white;
-  border-radius: 12.5px;
-  color: #1c1e21;
-  flex: 1 0;
-  font: 400 13px Arial,sans-serif;
-  margin: 0 16px 0 8px;
-  padding: 5px 15px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-body.dark-mode .window-address-bar {
-  background-color: #1b1b1d;
-  color: #e3e3e3;
-}
-
-.window-menu-bar {
-  background-color: #aaa;
-  display: block;
-  height: 3px;
-  margin: 3px 0;
-  width: 17px;
-}
-
-.window-header {
-  align-items: center;
-  background: #ebedf0;
-  display: flex;
-  padding: 8px 16px;
-  border-top-left-radius: 6px;
-  border-top-right-radius: 6px;
-  height: var(--window-header-height);
-}
-
-body.dark-mode .window-header {
-  background: #444950;
+.snapshot-tab .cm-wrapper {
+  line-height: 23px;
+  margin-right: 4px;
 }

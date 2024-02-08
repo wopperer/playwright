@@ -18,27 +18,34 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { test, expect, stripAnsi } from './playwright-test-fixtures';
 
-test('should support spec.ok', async ({ runInlineTest }) => {
+test('should support spec.ok and stats', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.test.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('math works!', async ({}) => {
         expect(1 + 1).toBe(2);
       });
       test('math fails!', async ({}) => {
         expect(1 + 1).toBe(3);
       });
+      test.skip('math skipped', async ({}) => {
+      });
     `
   }, { });
   expect(result.exitCode).toBe(1);
   expect(result.report.suites[0].specs[0].ok).toBe(true);
   expect(result.report.suites[0].specs[1].ok).toBe(false);
+  expect(result.report.suites[0].specs[2].ok).toBe(true);
+  expect(result.report.stats.expected).toEqual(1);
+  expect(result.report.stats.unexpected).toEqual(1);
+  expect(result.report.stats.flaky).toEqual(0);
+  expect(result.report.stats.skipped).toEqual(1);
 });
 
 test('should not report skipped due to sharding', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.test.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('one', async () => {
       });
       test('two', async () => {
@@ -46,7 +53,7 @@ test('should not report skipped due to sharding', async ({ runInlineTest }) => {
       });
     `,
     'b.test.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('three', async () => {
       });
       test('four', async () => {
@@ -63,7 +70,7 @@ test('should not report skipped due to sharding', async ({ runInlineTest }) => {
   expect(result.report.suites[0].specs[1].tests[0].status).toBe('skipped');
 });
 
-test('should report projects', async ({ runInlineTest }, testInfo) => {
+test('should report projects and stats', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'playwright.config.ts': `
       module.exports = {
@@ -83,7 +90,7 @@ test('should report projects', async ({ runInlineTest }, testInfo) => {
       };
     `,
     'a.test.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('math works!', async ({}) => {
         expect(1 + 1).toBe(2);
       });
@@ -107,12 +114,15 @@ test('should report projects', async ({ runInlineTest }, testInfo) => {
 
   expect(result.report.suites[0].specs[0].tests[0].projectName).toBe('p1');
   expect(result.report.suites[0].specs[0].tests[1].projectName).toBe('p2');
+
+  expect(new Date(result.report.stats.startTime).valueOf()).not.toBeNaN();
+  expect(result.report.stats.duration).toEqual(expect.any(Number));
 });
 
 test('should show steps', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.test.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('math works!', async ({}) => {
         expect(1 + 1).toBe(2);
         await test.step('math works in a step', async () => {
@@ -149,36 +159,22 @@ test('should show steps', async ({ runInlineTest }) => {
 test('should display tags separately from title', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.test.js': `
-      const { test } = pwt;
-      test('math works! @USR-MATH-001 @USR-MATH-002', async ({}) => {
-        expect(1 + 1).toBe(2);
-        await test.step('math works in a step', async () => {
-          expect(2 + 2).toBe(4);
-          await test.step('nested step', async () => {
-            expect(2 + 2).toBe(4);
-            await test.step('deeply nested step', async () => {
-              expect(2 + 2).toBe(4);
-            });
-          })
-        })
+      import { test, expect } from '@playwright/test';
+      test('math works! @USR-MATH-001 @USR-MATH-002', { tag: '@foo' }, async ({}) => {
+        test.info().annotations.push({ type: 'issue', description: 'issue-link' });
+        test.info().annotations.push({ type: 'novalue' });
       });
     `
   });
 
   expect(result.exitCode).toBe(0);
-  expect(result.report.suites.length).toBe(1);
-  expect(result.report.suites[0].specs.length).toBe(1);
-  // Ensure the length is as expected
-  expect(result.report.suites[0].specs[0].tags.length).toBe(2);
-  // Ensure that the '@' value is stripped
-  expect(result.report.suites[0].specs[0].tags[0]).toBe('USR-MATH-001');
-  expect(result.report.suites[0].specs[0].tags[1]).toBe('USR-MATH-002');
+  expect(result.report.suites[0].specs[0].tags).toEqual(['@foo', '@USR-MATH-001', '@USR-MATH-002']);
 });
 
 test('should have relative always-posix paths', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.test.js': `
-      const { test } = pwt;
+      const { test, expect } = require('@playwright/test');
       test('math works!', async ({}) => {
         expect(1 + 1).toBe(2);
       });
@@ -187,7 +183,7 @@ test('should have relative always-posix paths', async ({ runInlineTest }) => {
   expect(result.exitCode).toBe(0);
   expect(result.report.config.rootDir.indexOf(path.win32.sep)).toBe(-1);
   expect(result.report.suites[0].specs[0].file).toBe('a.test.js');
-  expect(result.report.suites[0].specs[0].line).toBe(6);
+  expect(result.report.suites[0].specs[0].line).toBe(3);
   expect(result.report.suites[0].specs[0].column).toBe(7);
 });
 
@@ -196,7 +192,7 @@ test('should have error position in results', async ({
 }) => {
   const result = await runInlineTest({
     'a.test.js': `
-      const { test } = pwt;
+      const { test, expect } = require('@playwright/test');
       test('math works!', async ({}) => {
         expect(1 + 1).toBe(3);
       });
@@ -204,7 +200,7 @@ test('should have error position in results', async ({
   });
   expect(result.exitCode).toBe(1);
   expect(result.report.suites[0].specs[0].file).toBe('a.test.js');
-  expect(result.report.suites[0].specs[0].tests[0].results[0].errorLocation!.line).toBe(7);
+  expect(result.report.suites[0].specs[0].tests[0].results[0].errorLocation!.line).toBe(4);
   expect(result.report.suites[0].specs[0].tests[0].results[0].errorLocation!.column).toBe(23);
 });
 
@@ -214,14 +210,14 @@ test('should add dot in addition to file json with CI', async ({ runInlineTest }
       module.exports = { reporter: [['json', { outputFile: 'a.json' }]] };
     `,
     'a.test.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('one', async ({}) => {
         expect(1).toBe(1);
       });
     `,
   }, { reporter: '' }, { CI: '1' });
   expect(result.exitCode).toBe(0);
-  expect(stripAnsi(result.output)).toContain('·');
+  expect(result.output).toContain('·');
   expect(fs.existsSync(testInfo.outputPath('a.json'))).toBeTruthy();
 });
 
@@ -231,20 +227,20 @@ test('should add line in addition to file json without CI', async ({ runInlineTe
       module.exports = { reporter: [['json', { outputFile: 'a.json' }]] };
     `,
     'a.test.js': `
-      const { test } = pwt;
+      const { test, expect } = require('@playwright/test');
       test('one', async ({}) => {
         expect(1).toBe(1);
       });
     `,
   }, { reporter: '' }, { PW_TEST_DEBUG_REPORTERS: '1' });
   expect(result.exitCode).toBe(0);
-  expect(stripAnsi(result.output)).toContain('[1/1] a.test.js:6:7 › one');
+  expect(result.output).toContain('[1/1] a.test.js:3:7 › one');
   expect(fs.existsSync(testInfo.outputPath('a.json'))).toBeTruthy();
 });
 test('should have starting time in results', async ({ runInlineTest }, testInfo) => {
   const result = await runInlineTest({
     'a.test.js': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('math works!', async ({}) => {
         expect(1 + 1).toBe(2);
       });
@@ -262,7 +258,7 @@ test.describe('report location', () => {
         module.exports = { reporter: [['json', { outputFile: '../my-report/a.json' }]] };
       `,
       'nested/project/a.test.js': `
-        const { test } = pwt;
+        import { test, expect } from '@playwright/test';
         test('one', async ({}) => {
           expect(1).toBe(1);
         });
@@ -280,14 +276,13 @@ test.describe('report location', () => {
         module.exports = { projects: [ {} ] };
       `,
       'foo/bar/baz/tests/a.spec.js': `
-        const { test } = pwt;
+        import { test, expect } from '@playwright/test';
         const fs = require('fs');
         test('pass', ({}, testInfo) => {
         });
       `
     }, { 'reporter': 'json' }, { 'PW_TEST_HTML_REPORT_OPEN': 'never', 'PLAYWRIGHT_JSON_OUTPUT_NAME': '../my-report.json' }, {
       cwd: 'foo/bar/baz/tests',
-      usesCustomOutputDir: true
     });
     expect(result.exitCode).toBe(0);
     expect(result.passed).toBe(1);

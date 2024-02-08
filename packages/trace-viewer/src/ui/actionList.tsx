@@ -19,128 +19,95 @@ import { msToString } from '@web/uiUtils';
 import * as React from 'react';
 import './actionList.css';
 import * as modelUtil from './modelUtil';
-import './tabbedPane.css';
 import { asLocator } from '@isomorphic/locatorGenerators';
 import type { Language } from '@isomorphic/locatorGenerators';
+import type { TreeState } from '@web/components/treeView';
+import { TreeView } from '@web/components/treeView';
+import type { ActionTraceEventInContext, ActionTreeItem } from './modelUtil';
+import type { Boundaries } from '../geometry';
 
 export interface ActionListProps {
-  actions: ActionTraceEvent[],
-  selectedAction: ActionTraceEvent | undefined,
-  highlightedAction: ActionTraceEvent | undefined,
+  actions: ActionTraceEventInContext[],
+  selectedAction: ActionTraceEventInContext | undefined,
+  selectedTime: Boundaries | undefined,
+  setSelectedTime: (time: Boundaries | undefined) => void,
   sdkLanguage: Language | undefined;
-  onSelected: (action: ActionTraceEvent) => void,
-  onHighlighted: (action: ActionTraceEvent | undefined) => void,
-  setSelectedTab: (tab: string) => void,
+  onSelected: (action: ActionTraceEventInContext) => void,
+  onHighlighted: (action: ActionTraceEventInContext | undefined) => void,
+  revealConsole: () => void,
+  isLive?: boolean,
 }
+
+const ActionTreeView = TreeView<ActionTreeItem>;
 
 export const ActionList: React.FC<ActionListProps> = ({
-  actions = [],
+  actions,
   selectedAction,
-  highlightedAction,
+  selectedTime,
+  setSelectedTime,
   sdkLanguage,
-  onSelected = () => {},
-  onHighlighted = () => {},
-  setSelectedTab = () => {},
+  onSelected,
+  onHighlighted,
+  revealConsole,
+  isLive,
 }) => {
-  const actionListRef = React.createRef<HTMLDivElement>();
+  const [treeState, setTreeState] = React.useState<TreeState>({ expandedItems: new Map() });
+  const { rootItem, itemMap } = React.useMemo(() => modelUtil.buildActionTree(actions), [actions]);
 
-  React.useEffect(() => {
-    actionListRef.current?.focus();
-  }, [selectedAction, actionListRef]);
+  const { selectedItem } = React.useMemo(() => {
+    const selectedItem = selectedAction ? itemMap.get(selectedAction.callId) : undefined;
+    return { selectedItem };
+  }, [itemMap, selectedAction]);
 
-  return <div className='action-list vbox'>
-    <div
-      className='action-list-content'
-      tabIndex={0}
-      onKeyDown={event => {
-        if (event.key !== 'ArrowDown' &&  event.key !== 'ArrowUp')
-          return;
-        event.stopPropagation();
-        event.preventDefault();
-        const index = selectedAction ? actions.indexOf(selectedAction) : -1;
-        let newIndex = index;
-        if (event.key === 'ArrowDown') {
-          if (index === -1)
-            newIndex = 0;
-          else
-            newIndex = Math.min(index + 1, actions.length - 1);
-        }
-        if (event.key === 'ArrowUp') {
-          if (index === -1)
-            newIndex = actions.length - 1;
-          else
-            newIndex = Math.max(index - 1, 0);
-        }
-        const element = actionListRef.current?.children.item(newIndex);
-        scrollIntoViewIfNeeded(element);
-        onSelected(actions[newIndex]);
-      }}
-      ref={actionListRef}
-    >
-      {actions.length === 0 && <div className='no-actions-entry'>No actions recorded</div>}
-      {actions.map(action => <ActionListItem
-        action={action}
-        highlightedAction={highlightedAction}
-        onSelected={onSelected}
-        onHighlighted={onHighlighted}
-        selectedAction={selectedAction}
-        sdkLanguage={sdkLanguage}
-        setSelectedTab={setSelectedTab}
-      />)}
-    </div>
+  return <div className='vbox'>
+    {selectedTime && <div className='action-list-show-all' onClick={() => setSelectedTime(undefined)}><span className='codicon codicon-triangle-left'></span>Show all</div>}
+    <ActionTreeView
+      name='actions'
+      rootItem={rootItem}
+      treeState={treeState}
+      setTreeState={setTreeState}
+      selectedItem={selectedItem}
+      onSelected={item => onSelected(item.action!)}
+      onHighlighted={item => onHighlighted(item?.action)}
+      onAccepted={item => setSelectedTime({ minimum: item.action!.startTime, maximum: item.action!.endTime })}
+      isError={item => !!item.action?.error?.message}
+      isVisible={item => !selectedTime || (item.action!.startTime <= selectedTime.maximum && item.action!.endTime >= selectedTime.minimum)}
+      render={item => renderAction(item.action!, { sdkLanguage, revealConsole, isLive, showDuration: true, showBadges: true })}
+    />
   </div>;
 };
 
-const ActionListItem: React.FC<{
+export const renderAction = (
   action: ActionTraceEvent,
-  highlightedAction: ActionTraceEvent | undefined,
-  onSelected: (action: ActionTraceEvent) => void,
-  onHighlighted: (action: ActionTraceEvent | undefined) => void,
-  selectedAction: ActionTraceEvent | undefined,
-  sdkLanguage: Language | undefined,
-  setSelectedTab: (tab: string) => void,
-}> = ({ action, onSelected, onHighlighted, highlightedAction, selectedAction, sdkLanguage, setSelectedTab }) => {
-  const { metadata } = action;
-  const selectedSuffix = action === selectedAction ? ' selected' : '';
-  const highlightedSuffix = action === highlightedAction ? ' highlighted' : '';
-  const error = metadata.error?.error?.message;
+  options: {
+    sdkLanguage?: Language,
+    revealConsole?: () => void,
+    isLive?: boolean,
+    showDuration?: boolean,
+    showBadges?: boolean,
+  }) => {
+  const { sdkLanguage, revealConsole, isLive, showDuration, showBadges } = options;
   const { errors, warnings } = modelUtil.stats(action);
-  const locator = metadata.params.selector ? asLocator(sdkLanguage || 'javascript', metadata.params.selector) : undefined;
+  const locator = action.params.selector ? asLocator(sdkLanguage || 'javascript', action.params.selector) : undefined;
 
-  const divRef = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    if (divRef.current && selectedAction === action)
-      scrollIntoViewIfNeeded(divRef.current);
-  }, [selectedAction, action]);
-
-  return <div
-    className={'action-entry' + selectedSuffix + highlightedSuffix}
-    key={metadata.id}
-    onClick={() => onSelected(action)}
-    onMouseEnter={() => onHighlighted(action)}
-    onMouseLeave={() => (highlightedAction === action) && onHighlighted(undefined)}
-    ref={divRef}
-  >
-    <div className='action-title'>
-      <span>{metadata.apiName}</span>
+  let time: string = '';
+  if (action.endTime)
+    time = msToString(action.endTime - action.startTime);
+  else if (action.error)
+    time = 'Timed out';
+  else if (!isLive)
+    time = '-';
+  return <>
+    <div className='action-title' title={action.apiName}>
+      <span>{action.apiName}</span>
       {locator && <div className='action-selector' title={locator}>{locator}</div>}
-      {metadata.method === 'goto' && metadata.params.url && <div className='action-url' title={metadata.params.url}>{metadata.params.url}</div>}
+      {action.method === 'goto' && action.params.url && <div className='action-url' title={action.params.url}>{action.params.url}</div>}
     </div>
-    <div className='action-duration' style={{ flex: 'none' }}>{metadata.endTime ? msToString(metadata.endTime - metadata.startTime) : 'Timed Out'}</div>
-    <div className='action-icons' onClick={() => setSelectedTab('console')}>
-      {!!errors && <div className='action-icon'><span className={'codicon codicon-error'}></span><span className="action-icon-value">{errors}</span></div>}
-      {!!warnings && <div className='action-icon'><span className={'codicon codicon-warning'}></span><span className="action-icon-value">{warnings}</span></div>}
-    </div>
-    {error && <div className='codicon codicon-issues' title={error} />}
-  </div>;
+    {(showDuration || showBadges) && <div className='spacer'></div>}
+    {showDuration && <div className='action-duration'>{time || <span className='codicon codicon-loading'></span>}</div>}
+    {showBadges && <div className='action-icons' onClick={() => revealConsole?.()}>
+      {!!errors && <div className='action-icon'><span className='codicon codicon-error'></span><span className="action-icon-value">{errors}</span></div>}
+      {!!warnings && <div className='action-icon'><span className='codicon codicon-warning'></span><span className="action-icon-value">{warnings}</span></div>}
+    </div>}
+  </>;
 };
-
-function scrollIntoViewIfNeeded(element?: Element | null) {
-  if (!element)
-    return;
-  if ((element as any)?.scrollIntoViewIfNeeded)
-    (element as any).scrollIntoViewIfNeeded(false);
-  else
-    element?.scrollIntoView();
-}

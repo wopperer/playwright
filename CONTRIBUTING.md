@@ -15,9 +15,11 @@
 
 ## How to Contribute
 
+We strongly recommend that you open an issue before beginning any code modifications. This is particularly important if the changes involve complex logic or if the existing code isn't immediately clear. By doing so, we can discuss and agree upon the best approach to address a bug or implement a feature, ensuring that our efforts are aligned.
+
 ### Getting Code
 
-Make sure you're running Node.js 14+ and NPM 8+, to verify and upgrade NPM do:
+Make sure you're running Node.js 16+ and NPM 8+, to verify and upgrade NPM do:
 
 ```bash
 node --version
@@ -150,12 +152,22 @@ These are integration tests, making sure public API methods and events work as e
 - To run all tests:
 
 ```bash
+npx playwright install
 npm run test
 ```
+
+Be sure to run `npm run build` or let `npm run watch` run before you re-run the
+tests after making your changes to check them.
 
 - To run all tests in Chromium
 ```bash
 npm run ctest # also `ftest` for firefox and `wtest` for WebKit
+```
+
+- To run the Playwright test runner tests
+```bash
+npm run ttest
+npm run ttest -- --grep "specific test"
 ```
 
 - To run a specific test, substitute `it` with `it.only`, or use the `--grep 'My test'` CLI parameter:

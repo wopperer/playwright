@@ -18,7 +18,7 @@
 import type { EventEmitter } from 'events';
 import type * as types from './types';
 import type { Progress } from './progress';
-import { debugLogger } from '../common/debugLogger';
+import { debugLogger } from '../utils/debugLogger';
 import type { RegisteredListener } from '../utils/eventsHelper';
 import { eventsHelper } from '../utils/eventsHelper';
 
@@ -98,7 +98,7 @@ class Helper {
   static formatBrowserLogs(logs: string[]) {
     if (!logs.length)
       return '';
-    return '\n' + '='.repeat(20) + ' Browser output: ' + '='.repeat(20) + '\n' + logs.join('\n');
+    return '\n' + logs.join('\n');
   }
 }
 

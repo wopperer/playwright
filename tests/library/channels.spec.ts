@@ -35,6 +35,7 @@ const it = playwrightTest.extend<{}, { expectScopeState: (object: any, golden: a
 });
 
 it.skip(({ mode }) => mode !== 'default');
+it.skip(({ video }) => video === 'on', 'Extra video artifacts in the objects list');
 
 it('should scope context handles', async ({ browserType, server, expectScopeState }) => {
   const browser = await browserType.launch();
@@ -69,10 +70,11 @@ it('should scope context handles', async ({ browserType, server, expectScopeStat
       { _guid: 'browser-type', objects: [
         { _guid: 'browser', objects: [
           { _guid: 'browser-context', objects: [
-            { _guid: 'request', objects: [] },
-            { _guid: 'response', objects: [] },
             { _guid: 'page', objects: [
               { _guid: 'frame', objects: [] },
+              { _guid: 'request', objects: [
+                { _guid: 'response', objects: [] },
+              ] },
             ] },
             { _guid: 'request-context', objects: [] },
             { _guid: 'tracing', objects: [] }
@@ -183,7 +185,7 @@ it('should scope browser handles', async ({ browserType, expectScopeState }) => 
   expectScopeState(browserType, GOLDEN_PRECONDITION);
 });
 
-it('should not generate dispatchers for subresources w/o listeners', async ({ page, server, browserType, expectScopeState, video }) => {
+it('should not generate dispatchers for subresources w/o listeners', async ({ page, server, browserType, expectScopeState }) => {
   server.setRedirect('/one-style.css', '/two-style.css');
   server.setRedirect('/two-style.css', '/three-style.css');
   server.setRedirect('/three-style.css', '/four-style.css');
@@ -200,16 +202,16 @@ it('should not generate dispatchers for subresources w/o listeners', async ({ pa
       { _guid: 'browser-type', objects: [
         {
           _guid: 'browser', objects: [
-            ...(video === 'on' ? [{ _guid: 'artifact', objects: [] }] : []),
             { _guid: 'browser-context', objects: [
               {
                 _guid: 'page', objects: [
-                  { _guid: 'frame', objects: [] }
+                  { _guid: 'frame', objects: [] },
+                  { _guid: 'request', objects: [
+                    { _guid: 'response', objects: [] },
+                  ] },
                 ]
               },
-              { _guid: 'request', objects: [] },
               { _guid: 'request-context', objects: [] },
-              { _guid: 'response', objects: [] },
               { _guid: 'tracing', objects: [] }
             ] },
           ]
@@ -239,7 +241,7 @@ it('should work with the domain module', async ({ browserType, server, browserNa
   let callback;
   const result = new Promise(f => callback = f);
   page.on('websocket', ws => ws.on('socketerror', callback));
-  page.evaluate(port => {
+  void page.evaluate(port => {
     new WebSocket('ws://localhost:' + port + '/bogus-ws');
   }, server.PORT);
   const message = await result;
@@ -252,6 +254,89 @@ it('should work with the domain module', async ({ browserType, server, browserNa
 
   if (err)
     throw err;
+});
+
+it('exposeFunction should not leak', async ({ page, expectScopeState, server }) => {
+  await page.goto(server.EMPTY_PAGE);
+  let called = 0;
+  await page.exposeFunction('myFunction', () => ++called);
+  for (let i = 0; i < 10; ++i)
+    await page.evaluate(() => (window as any).myFunction({ foo: 'bar' }));
+  expect(called).toBe(10);
+  expectScopeState(page, {
+    '_guid': '',
+    'objects': [
+      {
+        '_guid': 'android',
+        'objects': [],
+      },
+      {
+        '_guid': 'browser-type',
+        'objects': [],
+      },
+      {
+        '_guid': 'browser-type',
+        'objects': [],
+      },
+      {
+        '_guid': 'browser-type',
+        'objects': [
+          {
+            '_guid': 'browser',
+            'objects': [
+              {
+                '_guid': 'browser-context',
+                'objects': [
+                  {
+                    '_guid': 'page',
+                    'objects': [
+                      {
+                        '_guid': 'frame',
+                        'objects': [],
+                      },
+                      {
+                        '_guid': 'request',
+                        'objects': [
+                          {
+                            '_guid': 'response',
+                            'objects': [],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                  {
+                    '_guid': 'request-context',
+                    'objects': [],
+                  },
+                  {
+                    '_guid': 'tracing',
+                    'objects': [],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        '_guid': 'electron',
+        'objects': [],
+      },
+      {
+        '_guid': 'localUtils',
+        'objects': [],
+      },
+      {
+        '_guid': 'Playwright',
+        'objects': [],
+      },
+      {
+        '_guid': 'selectors',
+        'objects': [],
+      },
+    ],
+  });
 });
 
 function compareObjects(a, b) {

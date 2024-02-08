@@ -12,12 +12,12 @@ const playwright = require('playwright');
   const context = await browser.newContext();
   const page = await context.newPage();
   try {
-    await page.locator("text=Foo").click({
+    await page.locator('text=Foo').click({
       timeout: 100,
-    })
+    });
   } catch (error) {
     if (error instanceof playwright.errors.TimeoutError)
-      console.log("Timeout!")
+      console.log('Timeout!');
   }
   await browser.close();
 })();
@@ -25,9 +25,9 @@ const playwright = require('playwright');
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     browser = await playwright.chromium.launch()
     page = await browser.new_page()
     try:

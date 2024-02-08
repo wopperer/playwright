@@ -16,9 +16,10 @@
 
 import type { SelectorEngine, SelectorRoot } from './selectorEngine';
 import { matchesAttributePart } from './selectorUtils';
-import { getAriaChecked, getAriaDisabled, getAriaExpanded, getAriaLevel, getAriaPressed, getAriaRole, getAriaSelected, getElementAccessibleName, isElementHiddenForAria, kAriaCheckedRoles, kAriaExpandedRoles, kAriaLevelRoles, kAriaPressedRoles, kAriaSelectedRoles } from './roleUtils';
-import { parseAttributeSelector, type AttributeSelectorPart, type AttributeSelectorOperator } from '../isomorphic/selectorParser';
+import { beginAriaCaches, endAriaCaches, getAriaChecked, getAriaDisabled, getAriaExpanded, getAriaLevel, getAriaPressed, getAriaSelected, getElementAccessibleName, getElementsByRole, isElementHiddenForAria, kAriaCheckedRoles, kAriaExpandedRoles, kAriaLevelRoles, kAriaPressedRoles, kAriaSelectedRoles } from './roleUtils';
+import { parseAttributeSelector, type AttributeSelectorPart, type AttributeSelectorOperator } from '../../utils/isomorphic/selectorParser';
 import { normalizeWhiteSpace } from '../../utils/isomorphic/stringUtils';
+import { isInsideScope } from './domUtils';
 
 type RoleEngineOptions = {
   role: string;
@@ -125,56 +126,41 @@ function validateAttributes(attrs: AttributeSelectorPart[], role: string): RoleE
 }
 
 function queryRole(scope: SelectorRoot, options: RoleEngineOptions, internal: boolean): Element[] {
-  const hiddenCache = new Map<Element, boolean>();
-  const result: Element[] = [];
-  const match = (element: Element) => {
-    if (getAriaRole(element) !== options.role)
-      return;
+  const doc = scope.nodeType === 9 /* Node.DOCUMENT_NODE */ ? scope as Document : scope.ownerDocument;
+  const elements = doc ? getElementsByRole(doc, options.role) : [];
+  return elements.filter(element => {
+    if (!isInsideScope(scope, element))
+      return false;
     if (options.selected !== undefined && getAriaSelected(element) !== options.selected)
-      return;
+      return false;
     if (options.checked !== undefined && getAriaChecked(element) !== options.checked)
-      return;
+      return false;
     if (options.pressed !== undefined && getAriaPressed(element) !== options.pressed)
-      return;
+      return false;
     if (options.expanded !== undefined && getAriaExpanded(element) !== options.expanded)
-      return;
+      return false;
     if (options.level !== undefined && getAriaLevel(element) !== options.level)
-      return;
+      return false;
     if (options.disabled !== undefined && getAriaDisabled(element) !== options.disabled)
-      return;
+      return false;
     if (!options.includeHidden) {
-      const isHidden = isElementHiddenForAria(element, hiddenCache);
+      const isHidden = isElementHiddenForAria(element);
       if (isHidden)
-        return;
+        return false;
     }
     if (options.name !== undefined) {
       // Always normalize whitespace in the accessible name.
-      const accessibleName = normalizeWhiteSpace(getElementAccessibleName(element, !!options.includeHidden, hiddenCache));
+      const accessibleName = normalizeWhiteSpace(getElementAccessibleName(element, !!options.includeHidden));
       if (typeof options.name === 'string')
         options.name = normalizeWhiteSpace(options.name);
       // internal:role assumes that [name="foo"i] also means substring.
       if (internal && !options.exact && options.nameOp === '=')
         options.nameOp = '*=';
       if (!matchesAttributePart(accessibleName, { name: '', jsonPath: [], op: options.nameOp || '=', value: options.name, caseSensitive: !!options.exact }))
-        return;
+        return false;
     }
-    result.push(element);
-  };
-
-  const query = (root: Element | ShadowRoot | Document) => {
-    const shadows: ShadowRoot[] = [];
-    if ((root as Element).shadowRoot)
-      shadows.push((root as Element).shadowRoot!);
-    for (const element of root.querySelectorAll('*')) {
-      match(element);
-      if (element.shadowRoot)
-        shadows.push(element.shadowRoot);
-    }
-    shadows.forEach(query);
-  };
-
-  query(scope);
-  return result;
+    return true;
+  });
 }
 
 export function createRoleEngine(internal: boolean): SelectorEngine {
@@ -185,7 +171,12 @@ export function createRoleEngine(internal: boolean): SelectorEngine {
       if (!role)
         throw new Error(`Role must not be empty`);
       const options = validateAttributes(parsed.attributes, role);
-      return queryRole(scope, options, internal);
+      beginAriaCaches();
+      try {
+        return queryRole(scope, options, internal);
+      } finally {
+        endAriaCaches();
+      }
     }
   };
 }

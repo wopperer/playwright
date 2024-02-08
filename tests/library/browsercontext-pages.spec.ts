@@ -16,7 +16,7 @@
  */
 
 import { browserTest as it, expect } from '../config/browserTest';
-import { attachFrame, chromiumVersionLessThan } from '../config/utils';
+import { attachFrame } from '../config/utils';
 
 it('should not be visible in context.pages', async ({ contextFactory }) => {
   const context = await contextFactory();
@@ -39,7 +39,7 @@ it('frame.focus should work multiple times', async ({ contextFactory }) => {
   for (const page of [page1, page2]) {
     await page.setContent(`<button id="foo" onfocus="window.gotFocus=true"></button>`);
     await page.focus('#foo');
-    expect(await page.evaluate(() => !!window['gotFocus'])).toBe(true);
+    expect(await page.evaluate(() => !!(window as any)['gotFocus'])).toBe(true);
   }
 });
 
@@ -74,12 +74,12 @@ it('should click the button with deviceScaleFactor set', async ({ browser, serve
   await attachFrame(page, 'button-test', server.PREFIX + '/input/button.html');
   const frame = page.frames()[1];
   const button = await frame.$('button');
-  await button.click();
-  expect(await frame.evaluate(() => window['result'])).toBe('Clicked');
+  await button!.click();
+  expect(await frame.evaluate(() => (window as any)['result'])).toBe('Clicked');
   await context.close();
 });
 
-it('should click the button with offset with page scale', async ({ browser, server, headless, browserName, browserVersion }) => {
+it('should click the button with offset with page scale', async ({ browser, server, browserName }) => {
   it.skip(browserName === 'firefox');
 
   const context = await browser.newContext({ viewport: { width: 400, height: 400 }, isMobile: true });
@@ -91,20 +91,14 @@ it('should click the button with offset with page scale', async ({ browser, serv
   });
   await page.click('button', { position: { x: 20, y: 10 } });
   expect(await page.evaluate('result')).toBe('Clicked');
-  const round = x => Math.round(x + 0.01);
-  let expected = { x: 28, y: 18 };  // 20;10 + 8px of border in each direction
-  if (browserName === 'webkit') {
-    // WebKit rounds down during css -> dip -> css conversion.
-    expected = { x: 26, y: 17 };
-  } else if (browserName === 'chromium' && headless) {
-    // Headless Chromium rounds down during css -> dip -> css conversion.
-    expected = { x: 27, y: 18 };
-  } else if (browserName === 'chromium' && !headless && !chromiumVersionLessThan(browserVersion, '92.0.4498.0')) {
-    // New headed Chromium rounds down during css -> dip -> css conversion as well.
-    expected = { x: 27, y: 18 };
-  }
-  expect(round(await page.evaluate('pageX'))).toBe(expected.x);
-  expect(round(await page.evaluate('pageY'))).toBe(expected.y);
+  const expectCloseTo = (expected: number, actual: number) => {
+    if (Math.abs(expected - actual) > 2)
+      throw new Error(`Expected: ${expected}, received: ${actual}`);
+  };
+  // Expect 20;10 + 8px of border in each direction. Allow some delta as different
+  // browsers round up or down differently during css -> dip -> css conversion.
+  expectCloseTo(28, await page.evaluate('pageX'));
+  expectCloseTo(18, await page.evaluate('pageY'));
   await context.close();
 });
 
@@ -114,7 +108,7 @@ it('should return bounding box with page scale', async ({ browser, server, brows
   const context = await browser.newContext({ viewport: { width: 400, height: 400 }, isMobile: true });
   const page = await context.newPage();
   await page.goto(server.PREFIX + '/input/button.html');
-  const button = await page.$('button');
+  const button = (await page.$('button'))!;
   await button.evaluate(button => {
     document.body.style.margin = '0';
     button.style.borderWidth = '0';
@@ -123,7 +117,7 @@ it('should return bounding box with page scale', async ({ browser, server, brows
     button.style.marginLeft = '17px';
     button.style.marginTop = '23px';
   });
-  const box = await button.boundingBox();
+  const box = (await button.boundingBox())!;
   expect(Math.round(box.x * 100)).toBe(17 * 100);
   expect(Math.round(box.y * 100)).toBe(23 * 100);
   expect(Math.round(box.width * 100)).toBe(200 * 100);
@@ -136,11 +130,46 @@ it('should not leak listeners during navigation of 20 pages', async ({ contextFa
 
   const context = await contextFactory();
   let warning = null;
-  const warningHandler = w => warning = w;
+  const warningHandler = (w: string) => warning = w;
   process.on('warning', warningHandler);
   const pages = await Promise.all([...Array(20)].map(() => context.newPage()));
   await Promise.all(pages.map(page => page.goto(server.EMPTY_PAGE)));
   await Promise.all(pages.map(page => page.close()));
   process.off('warning', warningHandler);
   expect(warning).toBe(null);
+});
+
+it('should keep selection in multiple pages', async ({ context }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27475' });
+  const page1 = await context.newPage();
+  const page2 = await context.newPage();
+  for (const page of [page1, page2]) {
+    await page.setContent('<div id="container">lorem ipsum dolor sit amet</div>');
+    await page.evaluate(() => {
+      const element = document.getElementById('container') as HTMLDivElement;
+      const textNode = element.firstChild as Text;
+
+      const range = document.createRange();
+      range.setStart(textNode, 6);
+      range.setEnd(textNode, 11);
+
+      const selection = document.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    });
+  }
+  // In WebKit, selection is updated via IPC, give it enough time to take effect.
+  await new Promise(f => setTimeout(f, 1_000));
+  for (const page of [page1, page2]) {
+    const range = await page.evaluate(() => {
+      const selection = document.getSelection();
+      const range = selection?.getRangeAt(0);
+      return {
+        rangeCount: selection?.rangeCount,
+        startOffset: range?.startOffset,
+        endOffset: range?.endOffset,
+      };
+    });
+    expect(range).toEqual({ rangeCount: 1, startOffset: 6, endOffset: 11 });
+  }
 });

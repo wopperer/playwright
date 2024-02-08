@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-import { test, expect, stripAnsi } from './playwright-test-fixtures';
+import { test, expect } from './playwright-test-fixtures';
 
 test('should run fixture teardown on timeout', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'helper.ts': `
-      export const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      export const test = base.extend({
         foo: async ({}, run, testInfo) => {
           await run();
           console.log('STATUS:' + testInfo.status);
@@ -41,7 +42,7 @@ test('should run fixture teardown on timeout', async ({ runInlineTest }) => {
 test('should respect test.setTimeout', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('fails', async ({}) => {
         await new Promise(f => setTimeout(f, 1500));
       });
@@ -71,20 +72,20 @@ test('should respect test.setTimeout', async ({ runInlineTest }) => {
 test('should respect test.setTimeout outside of the test', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
 
       test.setTimeout(1000);
       test('fails', async ({}) => {
-        await new Promise(f => setTimeout(f, 1000));
+        await new Promise(f => setTimeout(f, 1100));
       });
       test('passes', async ({}) => {
         await new Promise(f => setTimeout(f, 100));
       });
 
       test.describe('suite', () => {
-        test.setTimeout(50);
+        test.setTimeout(500);
         test('fails', async ({}) => {
-          await new Promise(f => setTimeout(f, 100));
+          await new Promise(f => setTimeout(f, 600));
         });
         test('passes', async ({}) => {
         });
@@ -95,12 +96,13 @@ test('should respect test.setTimeout outside of the test', async ({ runInlineTes
   expect(result.failed).toBe(2);
   expect(result.passed).toBe(2);
   expect(result.output).toContain('Test timeout of 1000ms exceeded.');
+  expect(result.output).toContain('Test timeout of 500ms exceeded.');
 });
 
 test('should timeout when calling test.setTimeout too late', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('fails', async ({}) => {
         await new Promise(f => setTimeout(f, 500));
         test.setTimeout(100);
@@ -117,7 +119,7 @@ test('should timeout when calling test.setTimeout too late', async ({ runInlineT
 test('should respect test.slow', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('fails', async ({}) => {
         await new Promise(f => setTimeout(f, 1500));
       });
@@ -144,7 +146,8 @@ test('should respect test.slow', async ({ runInlineTest }) => {
 test('should ignore test.setTimeout when debugging', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.ts': `
-      const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         fixture: async ({}, use) => {
           test.setTimeout(100);
           await new Promise(f => setTimeout(f, 200));
@@ -164,7 +167,8 @@ test('should ignore test.setTimeout when debugging', async ({ runInlineTest }) =
 test('should respect fixture timeout', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.ts': `
-      const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         fixture: [async ({}, use) => {
           await new Promise(f => setTimeout(f, 300));
           await use('hey');
@@ -196,15 +200,16 @@ test('should respect fixture timeout', async ({ runInlineTest }) => {
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(1);
   expect(result.failed).toBe(2);
-  expect(result.output).toContain('Fixture "custom title" timeout of 500ms exceeded.');
-  expect(result.output).toContain('Fixture "slowTeardown" timeout of 400ms exceeded.');
-  expect(stripAnsi(result.output)).toContain('> 5 |       const test = pwt.test.extend({');
+  expect(result.output).toContain('Fixture "custom title" timeout of 500ms exceeded during setup.');
+  expect(result.output).toContain('Fixture "slowTeardown" timeout of 400ms exceeded during teardown.');
+  expect(result.output).toContain('> 3 |       const test = base.extend({');
 });
 
 test('should respect test.setTimeout in the worker fixture', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.ts': `
-      const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         fixture: [async ({}, use) => {
           await new Promise(f => setTimeout(f, 300));
           await use('hey');
@@ -236,16 +241,17 @@ test('should respect test.setTimeout in the worker fixture', async ({ runInlineT
   expect(result.exitCode).toBe(1);
   expect(result.passed).toBe(2);
   expect(result.failed).toBe(1);
-  expect(result.output).toContain('Fixture "slowSetup" timeout of 500ms exceeded.');
-  expect(result.output).toContain('Fixture "custom title" timeout of 400ms exceeded.');
+  expect(result.output).toContain('Fixture "slowSetup" timeout of 500ms exceeded during setup.');
+  expect(result.output).toContain('Fixture "custom title" timeout of 400ms exceeded during teardown.');
 });
 
 test('fixture time in beforeAll hook should not affect test', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.ts': `
-      const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         fixture: async ({}, use) => {
-          await new Promise(f => setTimeout(f, 500));
+          await new Promise(f => setTimeout(f, 2000));
           await use('hey');
         },
       });
@@ -254,7 +260,6 @@ test('fixture time in beforeAll hook should not affect test', async ({ runInline
       });
       test('test ok', async ({}) => {
         test.setTimeout(1000);
-        await new Promise(f => setTimeout(f, 800));
       });
     `
   });
@@ -265,18 +270,19 @@ test('fixture time in beforeAll hook should not affect test', async ({ runInline
 test('fixture timeout in beforeAll hook should not affect test', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.ts': `
-      const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         fixture: [async ({}, use) => {
-          await new Promise(f => setTimeout(f, 500));
+          await new Promise(f => setTimeout(f, 1000));
           await use('hey');
-        }, { timeout: 800 }],
+        }, { timeout: 1600 }],
       });
       test.beforeAll(async ({ fixture }) => {
         // Nothing to see here.
       });
       test('test ok', async ({}) => {
-        test.setTimeout(1000);
-        await new Promise(f => setTimeout(f, 800));
+        test.setTimeout(2000);
+        await new Promise(f => setTimeout(f, 1600));
       });
     `
   });
@@ -287,7 +293,8 @@ test('fixture timeout in beforeAll hook should not affect test', async ({ runInl
 test('fixture time in beforeEach hook should affect test', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.ts': `
-      const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         fixture: async ({}, use) => {
           await new Promise(f => setTimeout(f, 500));
           await use('hey');
@@ -310,7 +317,8 @@ test('fixture time in beforeEach hook should affect test', async ({ runInlineTes
 test('test timeout should still run hooks before fixtures teardown', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.ts': `
-      const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         auto: [async ({}, use) => {
           console.log('\\n%%before-auto');
           await use('hey');
@@ -322,6 +330,9 @@ test('test timeout should still run hooks before fixtures teardown', async ({ ru
         await new Promise(f => setTimeout(f, 500));
         console.log('\\n%%afterAll-2');
       });
+      test.afterEach(async () => {
+        console.log('\\n%%afterEach');
+      });
       test('test fail', async ({}) => {
         test.setTimeout(100);
         console.log('\\n%%test');
@@ -332,19 +343,21 @@ test('test timeout should still run hooks before fixtures teardown', async ({ ru
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);
   expect(result.output).toContain('Test timeout of 100ms exceeded.');
-  expect(result.output.split('\n').filter(line => line.startsWith('%%'))).toEqual([
-    '%%before-auto',
-    '%%test',
-    '%%afterAll-1',
-    '%%afterAll-2',
-    '%%after-auto',
+  expect(result.outputLines).toEqual([
+    'before-auto',
+    'test',
+    'afterEach',
+    'after-auto',
+    'afterAll-1',
+    'afterAll-2',
   ]);
 });
 
 test('should not include fixtures with own timeout and beforeAll in test duration', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'c.spec.ts': `
-      const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      const test = base.extend({
         foo: [async ({}, use) => {
           await new Promise(f => setTimeout(f, 1000));
           await use('foo');
@@ -382,7 +395,8 @@ test('should not include fixtures with own timeout and beforeAll in test duratio
 test('should run fixture teardowns after timeout with soft expect error', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'helper.ts': `
-      export const test = pwt.test.extend({
+      import { test as base, expect } from '@playwright/test';
+      export const test = base.extend({
         foo: async ({}, run, testInfo) => {
           await run();
           await new Promise(f => setTimeout(f, 500));
@@ -421,7 +435,7 @@ test('should run fixture teardowns after timeout with soft expect error', async 
 test('should respect test.describe.configure', async ({ runInlineTest }) => {
   const result = await runInlineTest({
     'a.spec.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test.describe.configure({ timeout: 1000 });
       test('test1', async ({}) => {
         console.log('test1-' + test.info().timeout);

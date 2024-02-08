@@ -55,6 +55,11 @@ export class CRServiceWorker extends Worker {
     });
   }
 
+  override didClose() {
+    this._session.dispose();
+    super.didClose();
+  }
+
   async updateOffline(initial: boolean): Promise<void> {
     if (!this._isNetworkInspectionEnabled())
       return;
@@ -114,7 +119,7 @@ export class CRServiceWorker extends Worker {
       const r = new network.Route(request, route);
       if (this._browserContext._requestInterceptor?.(r, request))
         return;
-      r.continue();
+      r.continue({ isFallback: true }).catch(() => {});
     }
   }
 

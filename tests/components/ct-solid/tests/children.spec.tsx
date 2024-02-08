@@ -13,12 +13,12 @@ test('render a default child', async ({ mount }) => {
 test('render multiple children', async ({ mount }) => {
   const component = await mount(
     <DefaultChildren>
-      <div id="one">One</div>
-      <div id="two">Two</div>
+      <div data-testid="one">One</div>
+      <div data-testid="two">Two</div>
     </DefaultChildren>
   );
-  await expect(component.locator('#one')).toContainText('One');
-  await expect(component.locator('#two')).toContainText('Two');
+  await expect(component.getByTestId('one')).toContainText('One');
+  await expect(component.getByTestId('two')).toContainText('Two');
 });
 
 test('render a component as child', async ({ mount }) => {
@@ -41,4 +41,20 @@ test('render named children', async ({ mount }) => {
   await expect(component).toContainText('Header');
   await expect(component).toContainText('Main Content');
   await expect(component).toContainText('Footer');
+});
+
+test('render string as child', async ({ mount }) => {
+  const component = await mount(<DefaultChildren>{'string'}</DefaultChildren>);
+  await expect(component).toContainText('string');
+});
+
+test('render array as child', async ({ mount }) => {
+  const component = await mount(<DefaultChildren>{[<h4>{[4]}</h4>,[[<p>[2,3]</p>]]]}</DefaultChildren>);
+  await expect(component.getByRole('heading', { level: 4 })).toHaveText('4');
+  await expect(component.getByRole('paragraph')).toHaveText('[2,3]');
+});
+
+test('render number as child', async ({ mount }) => {
+  const component = await mount(<DefaultChildren>{1337}</DefaultChildren>);
+  await expect(component).toContainText('1337');
 });

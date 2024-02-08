@@ -21,7 +21,7 @@ import { compare } from '../image_tools/compare';
 const { diff_match_patch, DIFF_INSERT, DIFF_DELETE, DIFF_EQUAL } = require('../third_party/diff_match_patch');
 import { PNG } from '../utilsBundle';
 
-export type ImageComparatorOptions = { threshold?: number, maxDiffPixels?: number, maxDiffPixelRatio?: number, _comparator?: string };
+export type ImageComparatorOptions = { threshold?: number, maxDiffPixels?: number, maxDiffPixelRatio?: number, comparator?: string };
 export type ComparatorResult = { diff?: Buffer; errorMessage: string; } | null;
 export type Comparator = (actualBuffer: Buffer | string, expectedBuffer: Buffer, options?: any) => ComparatorResult;
 
@@ -52,6 +52,7 @@ type ImageData = { width: number, height: number, data: Buffer };
 function compareImages(mimeType: string, actualBuffer: Buffer | string, expectedBuffer: Buffer, options: ImageComparatorOptions = {}): ComparatorResult {
   if (!actualBuffer || !(actualBuffer instanceof Buffer))
     return { errorMessage: 'Actual result should be a Buffer.' };
+  validateBuffer(expectedBuffer, mimeType);
 
   let actual: ImageData = mimeType === 'image/png' ? PNG.sync.read(actualBuffer) : jpegjs.decode(actualBuffer, { maxMemoryUsageInMB: JPEG_JS_MAX_BUFFER_SIZE_IN_MB });
   let expected: ImageData = mimeType === 'image/png' ? PNG.sync.read(expectedBuffer) : jpegjs.decode(expectedBuffer, { maxMemoryUsageInMB: JPEG_JS_MAX_BUFFER_SIZE_IN_MB });
@@ -64,18 +65,18 @@ function compareImages(mimeType: string, actualBuffer: Buffer | string, expected
   }
   const diff = new PNG({ width: size.width, height: size.height });
   let count;
-  if (options._comparator === 'ssim-cie94') {
+  if (options.comparator === 'ssim-cie94') {
     count = compare(expected.data, actual.data, diff.data, size.width, size.height, {
       // All ΔE* formulae are originally designed to have the difference of 1.0 stand for a "just noticeable difference" (JND).
       // See https://en.wikipedia.org/wiki/Color_difference#CIELAB_%CE%94E*
       maxColorDeltaE94: 1.0,
     });
-  } else if ((options._comparator ?? 'pixelmatch') === 'pixelmatch') {
+  } else if ((options.comparator ?? 'pixelmatch') === 'pixelmatch') {
     count = pixelmatch(expected.data, actual.data, diff.data, size.width, size.height, {
       threshold: options.threshold ?? 0.2,
     });
   } else {
-    throw new Error(`Configuration specifies unknown comparator "${options._comparator}"`);
+    throw new Error(`Configuration specifies unknown comparator "${options.comparator}"`);
   }
 
   const maxDiffPixels1 = options.maxDiffPixels;
@@ -90,6 +91,18 @@ function compareImages(mimeType: string, actualBuffer: Buffer | string, expected
   if (pixelsMismatchError || sizesMismatchError)
     return { errorMessage: sizesMismatchError + pixelsMismatchError, diff: PNG.sync.write(diff) };
   return null;
+}
+
+function validateBuffer(buffer: Buffer, mimeType: string): void {
+  if (mimeType === 'image/png') {
+    const pngMagicNumber = [137, 80, 78, 71, 13, 10, 26, 10];
+    if (buffer.length < pngMagicNumber.length || !pngMagicNumber.every((byte, index) => buffer[index] === byte))
+      throw new Error('could not decode image as PNG.');
+  } else if (mimeType === 'image/jpeg') {
+    const jpegMagicNumber = [255, 216];
+    if (buffer.length < jpegMagicNumber.length || !jpegMagicNumber.every((byte, index) => buffer[index] === byte))
+      throw new Error('could not decode image as JPEG.');
+  }
 }
 
 function compareText(actual: Buffer | string, expectedBuffer: Buffer): ComparatorResult {

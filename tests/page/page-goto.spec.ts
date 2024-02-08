@@ -24,8 +24,9 @@ it('should work @smoke', async ({ page, server }) => {
   expect(page.url()).toBe(server.EMPTY_PAGE);
 });
 
-it('should work with file URL', async ({ page, asset, isAndroid }) => {
+it('should work with file URL', async ({ page, asset, isAndroid, mode }) => {
   it.skip(isAndroid, 'No files on Android');
+  it.skip(mode.startsWith('service'));
 
   const fileurl = url.pathToFileURL(asset('empty.html')).href;
   await page.goto(fileurl);
@@ -33,8 +34,9 @@ it('should work with file URL', async ({ page, asset, isAndroid }) => {
   expect(page.frames().length).toBe(1);
 });
 
-it('should work with file URL with subframes', async ({ page, asset, isAndroid }) => {
+it('should work with file URL with subframes', async ({ page, asset, isAndroid, mode }) => {
   it.skip(isAndroid, 'No files on Android');
+  it.skip(mode.startsWith('service'));
 
   const fileurl = url.pathToFileURL(asset('frames/two-frames.html')).href;
   await page.goto(fileurl);
@@ -253,7 +255,6 @@ it('should work when page calls history API in beforeunload', async ({ page, ser
 });
 
 it('should fail when navigating to bad url', async ({ mode, page, browserName }) => {
-  it.skip(mode === 'service', 'baseURL is inherited from webServer in config');
   let error = null;
   await page.goto('asdfasdf').catch(e => error = e);
   if (browserName === 'chromium' || browserName === 'webkit')
@@ -262,7 +263,7 @@ it('should fail when navigating to bad url', async ({ mode, page, browserName })
     expect(error.message).toContain('Invalid url');
 });
 
-it('should fail when navigating to bad SSL', async ({ page, browserName, httpsServer }) => {
+it('should fail when navigating to bad SSL', async ({ page, browserName, httpsServer, platform }) => {
   // Make sure that network events do not emit 'undefined'.
   // @see https://crbug.com/750469
   page.on('request', request => expect(request).toBeTruthy());
@@ -270,15 +271,15 @@ it('should fail when navigating to bad SSL', async ({ page, browserName, httpsSe
   page.on('requestfailed', request => expect(request).toBeTruthy());
   let error = null;
   await page.goto(httpsServer.EMPTY_PAGE).catch(e => error = e);
-  expect(error.message).toContain(expectedSSLError(browserName));
+  expect(error.message).toMatch(expectedSSLError(browserName, platform));
 });
 
-it('should fail when navigating to bad SSL after redirects', async ({ page, browserName, server, httpsServer }) => {
+it('should fail when navigating to bad SSL after redirects', async ({ page, browserName, server, httpsServer, platform }) => {
   server.setRedirect('/redirect/1.html', '/redirect/2.html');
   server.setRedirect('/redirect/2.html', '/empty.html');
   let error = null;
   await page.goto(httpsServer.PREFIX + '/redirect/1.html').catch(e => error = e);
-  expect(error.message).toContain(expectedSSLError(browserName));
+  expect(error.message).toMatch(expectedSSLError(browserName, platform));
 });
 
 it('should not crash when navigating to bad SSL after a cross origin navigation', async ({ page, server, httpsServer }) => {
@@ -301,16 +302,23 @@ it('should throw if networkidle2 is passed as an option', async ({ page, server 
 it('should fail when main resources failed to load', async ({ page, browserName, isWindows, mode }) => {
   let error = null;
   await page.goto('http://localhost:44123/non-existing-url').catch(e => error = e);
-  if (mode === 'service')
-    expect(error.message).toContain('net::ERR_SOCKS_CONNECTION_FAILED');
-  else if (browserName === 'chromium')
-    expect(error.message).toContain('net::ERR_CONNECTION_REFUSED');
-  else if (browserName === 'webkit' && isWindows)
+  if (browserName === 'chromium') {
+    if (mode === 'service2')
+      expect(error.message).toContain('net::ERR_SOCKS_CONNECTION_FAILED');
+    else
+      expect(error.message).toContain('net::ERR_CONNECTION_REFUSED');
+  } else if (browserName === 'webkit' && isWindows && mode === 'service2') {
+    expect(error.message).toContain(`proxy handshake error`);
+  } else if (browserName === 'webkit' && isWindows) {
     expect(error.message).toContain(`Couldn\'t connect to server`);
-  else if (browserName === 'webkit')
-    expect(error.message).toContain('Could not connect');
-  else
+  } else if (browserName === 'webkit') {
+    if (mode === 'service2')
+      expect(error.message).toContain('Connection refused');
+    else
+      expect(error.message).toContain('Could not connect');
+  } else {
     expect(error.message).toContain('NS_ERROR_CONNECTION_REFUSED');
+  }
 });
 
 it('should fail when exceeding maximum navigation timeout', async ({ page, server, playwright }) => {
@@ -410,11 +418,106 @@ it('should fail when replaced by another navigation', async ({ page, server, bro
   });
   const error = await page.goto(server.PREFIX + '/empty.html').catch(e => e);
   await anotherPromise;
-  if (browserName === 'chromium')
+  if (browserName === 'chromium') {
     expect(error.message).toContain('net::ERR_ABORTED');
-  else if (browserName === 'webkit' || browserName === 'firefox')
-    expect(error.message).toContain('Navigation interrupted by another one');
+  } else if (browserName === 'webkit') {
+    expect(error.message).toContain(`page.goto: Navigation to "${server.PREFIX + '/empty.html'}" is interrupted by another navigation to "${server.PREFIX + '/one-style.html'}"`);
+  } else if (browserName === 'firefox') {
+    // Firefox might yield either NS_BINDING_ABORTED or 'navigation interrupted by another one'
+    expect(error.message.includes(`page.goto: Navigation to "${server.PREFIX + '/empty.html'}" is interrupted by another navigation to "${server.PREFIX + '/one-style.html'}"`) || error.message.includes('NS_BINDING_ABORTED')).toBe(true);
+  }
 });
+
+it('js redirect overrides url bar navigation ', async ({ page, server, browserName, trace }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/20749' });
+  it.skip(trace === 'on', 'tracing waits for snapshot that never arrives because pending navigation');
+
+  server.setRoute('/a', (req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end(`
+        <body>
+          <script>
+            setTimeout(() => {
+              window.location.pathname = '/c';
+            }, 1000);
+          </script>
+        </body>
+      `);
+  });
+  const events = [];
+  server.setRoute('/b', async (req, res) => {
+    events.push('started b');
+    await new Promise(f => setTimeout(f, 2000));
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end(`BBB`);
+    events.push('finished b');
+  });
+  server.setRoute('/c', async (req, res) => {
+    events.push('started c');
+    await new Promise(f => setTimeout(f, 2000));
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end(`CCC`);
+    events.push('finished c');
+  });
+  await page.goto(server.PREFIX + '/a');
+  const error = await page.goto(server.PREFIX + '/b').then(r => null, e => e);
+  const expectEvents = (browserName === 'chromium') ?
+    ['started b', 'finished b'] :
+    ['started b', 'started c', 'finished b', 'finished c'];
+  await expect(() => expect(events).toEqual(expectEvents)).toPass();
+  expect(events).toEqual(expectEvents);
+  if (browserName === 'chromium') {
+    // Chromium prioritizes the url bar navigation over the js redirect.
+    expect(error).toBeFalsy();
+    await expect(page).toHaveURL(server.PREFIX + '/b');
+  } else if (browserName === 'webkit') {
+    expect(error.message).toContain(`page.goto: Navigation to "${server.PREFIX + '/b'}" is interrupted by another navigation to "${server.PREFIX + '/c'}"`);
+    await expect(page).toHaveURL(server.PREFIX + '/c');
+  } else if (browserName === 'firefox') {
+    expect(error.message).toContain('NS_BINDING_ABORTED');
+    await expect(page).toHaveURL(server.PREFIX + '/c');
+  }
+});
+
+it('should succeed on url bar navigation when there is pending navigation', async ({ page, server, browserName }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21574' });
+  server.setRoute('/a', (req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end(`
+      <body>
+        <script>
+          setTimeout(() => {
+            window.location.pathname = '/c';
+          }, 10);
+        </script>
+      </body>
+    `);
+  });
+  const events = [];
+  server.setRoute('/b', async (req, res) => {
+    events.push('started b');
+    await new Promise(f => setTimeout(f, 2000));
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end(`BBB`);
+    events.push('finished b');
+  });
+  server.setRoute('/c', async (req, res) => {
+    events.push('started c');
+    await new Promise(f => setTimeout(f, 2000));
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end(`CCC`);
+    events.push('finished c');
+  });
+  await page.goto(server.PREFIX + '/a');
+  await new Promise(f => setTimeout(f, 1000));
+  const error = await page.goto(server.PREFIX + '/b').then(r => null, e => e);
+  const expectEvents = ['started c', 'started b', 'finished c', 'finished b'];
+  await expect(() => expect(events).toEqual(expectEvents)).toPass({ timeout: 5000 });
+  expect(events).toEqual(expectEvents);
+  expect(error).toBeFalsy();
+  expect(page.url()).toBe(server.PREFIX + '/b');
+});
+
 
 it('should work when navigating to valid url', async ({ page, server }) => {
   const response = await page.goto(server.EMPTY_PAGE);
@@ -524,6 +627,21 @@ it('should send referer', async ({ page, server }) => {
     }),
   ]);
   expect(request1.headers['referer']).toBe('http://google.com/');
+  // Make sure subresources do not inherit referer.
+  expect(request2.headers['referer']).toBe(server.PREFIX + '/grid.html');
+  expect(page.url()).toBe(server.PREFIX + '/grid.html');
+});
+
+it('should send referer of cross-origin URL', async ({ page, server }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/27765' });
+  const [request1, request2] = await Promise.all([
+    server.waitForRequest('/grid.html'),
+    server.waitForRequest('/digits/1.png'),
+    page.goto(server.PREFIX + '/grid.html', {
+      referer: 'https://microsoft.com/xbox/'
+    }),
+  ]);
+  expect(request1.headers['referer']).toBe('https://microsoft.com/xbox/');
   // Make sure subresources do not inherit referer.
   expect(request2.headers['referer']).toBe(server.PREFIX + '/grid.html');
   expect(page.url()).toBe(server.PREFIX + '/grid.html');
@@ -706,4 +824,11 @@ it('should wait for load when iframe attaches and detaches', async ({ page, serv
   await frameDetached; // Make sure that iframe is gone.
   await done;
   expect(await page.$('iframe')).toBe(null);
+});
+
+it('should return url with basic auth info', async ({ page, server, loopback }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/23138' });
+  const url = `http://admin:admin@${loopback || 'localhost'}:${server.PORT}/empty.html`;
+  await page.goto(url);
+  expect(page.url()).toBe(url);
 });

@@ -19,7 +19,7 @@ import { test, expect } from './playwright-test-fixtures';
 test('should expose request fixture', async ({ runInlineTest, server }) => {
   const result = await runInlineTest({
     'a.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('pass', async ({ request }) => {
         const response = await request.get('${server.PREFIX}/simple.json');
         const json = await response.json();
@@ -38,7 +38,7 @@ test('should use baseURL in request fixture', async ({ runInlineTest, server }) 
       module.exports = { use: { baseURL: '${server.PREFIX}' } };
     `,
     'a.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('pass', async ({ request }) => {
         const response = await request.get('/simple.json');
         const json = await response.json();
@@ -51,35 +51,31 @@ test('should use baseURL in request fixture', async ({ runInlineTest, server }) 
   expect(result.passed).toBe(1);
 });
 
-test('should stop tracing on requestContex.dispose()', async ({ runInlineTest, server }) => {
+test('should stop tracing on requestContext.dispose()', async ({ runInlineTest, server }) => {
   server.setRoute('/slow', (req, resp) => {
     resp.writeHead(200, {
       'Content-Type': 'text/plain; charset=utf-8',
       'Content-Length': '3',
     });
-    setTimeout(() => {
-      resp.end('Hi!');
-    }, 500);
   });
   const result = await runInlineTest({
     'playwright.config.ts': `
       module.exports = {
-        reporter: 'html',
+        reporter: [['html', { open: 'never' }]],
         use: {
-          browserName: 'firefox',
           trace:'retain-on-failure'
         }
       };
     `,
     'a.test.ts': `
-      const { test } = pwt;
+      import { test, expect } from '@playwright/test';
       test('hanging request', async ({ page, request }) => {
         const response = await page.goto('${server.EMPTY_PAGE}');
         expect(response.status()).toBe(200);
         await request.get('${server.PREFIX}/slow');
       });
     `,
-  }, { workers: 1, timeout: 1000 });
+  }, { workers: 1, timeout: 2000 });
   expect(result.output).not.toContain('ENOENT');
   expect(result.exitCode).toBe(1);
   expect(result.failed).toBe(1);

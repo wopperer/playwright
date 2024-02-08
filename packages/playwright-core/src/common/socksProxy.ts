@@ -14,16 +14,12 @@
  * limitations under the License.
  */
 
-import dns from 'dns';
 import EventEmitter from 'events';
 import type { AddressInfo } from 'net';
 import net from 'net';
-import util from 'util';
-import { debugLogger } from './debugLogger';
-import { createSocket } from '../utils/network';
+import { debugLogger } from '../utils/debugLogger';
+import { createSocket } from '../utils/happy-eyeballs';
 import { assert, createGuid,  } from '../utils';
-
-const dnsLookupAsync = util.promisify(dns.lookup);
 
 // https://tools.ietf.org/html/rfc1928
 
@@ -412,9 +408,7 @@ export class SocksProxy extends EventEmitter implements SocksConnectionClient {
 
   private async _handleDirect(request: SocksSocketRequestedPayload) {
     try {
-      // TODO: Node.js 17 does resolve localhost to ipv6
-      const { address } = await dnsLookupAsync(request.host === 'localhost' ? '127.0.0.1' : request.host);
-      const socket = await createSocket(address, request.port);
+      const socket = await createSocket(request.host, request.port);
       socket.on('data', data => this._connections.get(request.uid)?.sendData(data));
       socket.on('error', error => {
         this._connections.get(request.uid)?.error(error.message);
@@ -427,7 +421,7 @@ export class SocksProxy extends EventEmitter implements SocksConnectionClient {
       const localAddress = socket.localAddress;
       const localPort = socket.localPort;
       this._directSockets.set(request.uid, socket);
-      this._connections.get(request.uid)?.socketConnected(localAddress, localPort);
+      this._connections.get(request.uid)?.socketConnected(localAddress!, localPort!);
     } catch (error) {
       this._connections.get(request.uid)?.socketFailed(error.code);
     }
@@ -442,7 +436,6 @@ export class SocksProxy extends EventEmitter implements SocksConnectionClient {
       this._server.listen(port, () => {
         const port = (this._server.address() as AddressInfo).port;
         this._port = port;
-        debugLogger.log('proxy', `Starting socks proxy server on port ${port}`);
         f(port);
       });
     });
@@ -531,43 +524,45 @@ export class SocksProxyHandler extends EventEmitter {
   }
 
   async socketRequested({ uid, host, port }: SocksSocketRequestedPayload): Promise<void> {
+    debugLogger.log('socks', `[${uid}] => request ${host}:${port}`);
     if (!this._patternMatcher(host, port)) {
       const payload: SocksSocketFailedPayload = { uid, errorCode: 'ERULESET' };
+      debugLogger.log('socks', `[${uid}] <= pattern error ${payload.errorCode}`);
       this.emit(SocksProxyHandler.Events.SocksFailed, payload);
       return;
     }
 
     if (host === 'local.playwright')
-      host = '127.0.0.1';
-    // Node.js 17 does resolve localhost to ipv6
-    if (host === 'localhost')
-      host = '127.0.0.1';
+      host = 'localhost';
     try {
       if (this._redirectPortForTest)
         port = this._redirectPortForTest;
-      const { address } = await dnsLookupAsync(host);
-      const socket = await createSocket(address, port);
+      const socket = await createSocket(host, port);
       socket.on('data', data => {
         const payload: SocksSocketDataPayload = { uid, data };
         this.emit(SocksProxyHandler.Events.SocksData, payload);
       });
       socket.on('error', error => {
         const payload: SocksSocketErrorPayload = { uid, error: error.message };
+        debugLogger.log('socks', `[${uid}] <= network socket error ${payload.error}`);
         this.emit(SocksProxyHandler.Events.SocksError, payload);
         this._sockets.delete(uid);
       });
       socket.on('end', () => {
         const payload: SocksSocketEndPayload = { uid };
+        debugLogger.log('socks', `[${uid}] <= network socket closed`);
         this.emit(SocksProxyHandler.Events.SocksEnd, payload);
         this._sockets.delete(uid);
       });
       const localAddress = socket.localAddress;
       const localPort = socket.localPort;
       this._sockets.set(uid, socket);
-      const payload: SocksSocketConnectedPayload = { uid, host: localAddress, port: localPort };
+      const payload: SocksSocketConnectedPayload = { uid, host: localAddress!, port: localPort! };
+      debugLogger.log('socks', `[${uid}] <= connected to network ${payload.host}:${payload.port}`);
       this.emit(SocksProxyHandler.Events.SocksConnected, payload);
     } catch (error) {
       const payload: SocksSocketFailedPayload = { uid, errorCode: error.code };
+      debugLogger.log('socks', `[${uid}] <= connect error ${payload.errorCode}`);
       this.emit(SocksProxyHandler.Events.SocksFailed, payload);
     }
   }
@@ -577,6 +572,7 @@ export class SocksProxyHandler extends EventEmitter {
   }
 
   socketClosed({ uid }: SocksSocketClosedPayload): void {
+    debugLogger.log('socks', `[${uid}] <= browser socket closed`);
     this._sockets.get(uid)?.destroy();
     this._sockets.delete(uid);
   }

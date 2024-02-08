@@ -21,8 +21,10 @@ import { ElementHandleDispatcher } from './elementHandlerDispatcher';
 import { parseSerializedValue, serializeValue } from '../../protocol/serializers';
 import type { PageDispatcher, WorkerDispatcher } from './pageDispatcher';
 import type { ElectronApplicationDispatcher } from './electronDispatcher';
+import type { FrameDispatcher } from './frameDispatcher';
+import type { CallMetadata } from '../instrumentation';
 
-export type JSHandleDispatcherParentScope = PageDispatcher | WorkerDispatcher | ElectronApplicationDispatcher;
+export type JSHandleDispatcherParentScope = PageDispatcher | FrameDispatcher | WorkerDispatcher | ElectronApplicationDispatcher;
 
 export class JSHandleDispatcher extends Dispatcher<js.JSHandle, channels.JSHandleChannel, JSHandleDispatcherParentScope> implements channels.JSHandleChannel {
   _type_JSHandle = true;
@@ -36,11 +38,11 @@ export class JSHandleDispatcher extends Dispatcher<js.JSHandle, channels.JSHandl
   }
 
   async evaluateExpression(params: channels.JSHandleEvaluateExpressionParams): Promise<channels.JSHandleEvaluateExpressionResult> {
-    return { value: serializeResult(await this._object.evaluateExpressionAndWaitForSignals(params.expression, params.isFunction, true /* returnByValue */, parseArgument(params.arg))) };
+    return { value: serializeResult(await this._object.evaluateExpression(params.expression, { isFunction: params.isFunction }, parseArgument(params.arg))) };
   }
 
   async evaluateExpressionHandle(params: channels.JSHandleEvaluateExpressionHandleParams): Promise<channels.JSHandleEvaluateExpressionHandleResult> {
-    const jsHandle = await this._object.evaluateExpressionAndWaitForSignals(params.expression, params.isFunction, false /* returnByValue */, parseArgument(params.arg));
+    const jsHandle = await this._object.evaluateExpressionHandle(params.expression, { isFunction: params.isFunction }, parseArgument(params.arg));
     return { handle: ElementHandleDispatcher.fromJSHandle(this.parentScope(), jsHandle) };
   }
 
@@ -61,8 +63,14 @@ export class JSHandleDispatcher extends Dispatcher<js.JSHandle, channels.JSHandl
     return { value: serializeResult(await this._object.jsonValue()) };
   }
 
-  async dispose() {
-    await this._object.dispose();
+  async objectCount(params?: channels.JSHandleObjectCountParams | undefined): Promise<channels.JSHandleObjectCountResult> {
+    return { count: await this._object.objectCount() };
+  }
+
+  async dispose(_: any, metadata: CallMetadata) {
+    metadata.potentiallyClosesScope = true;
+    this._object.dispose();
+    this._dispose();
   }
 }
 

@@ -14,25 +14,39 @@
  * limitations under the License.
  */
 
-import type { ParsedStackTrace } from '../utils/stackTrace';
+import type { StackFrame } from '@protocol/channels';
+import type { BrowserContext } from './browserContext';
+import type { APIRequestContext } from './fetch';
 
 export interface ClientInstrumentation {
   addListener(listener: ClientInstrumentationListener): void;
   removeListener(listener: ClientInstrumentationListener): void;
   removeAllListeners(): void;
-  onApiCallBegin(apiCall: string, stackTrace: ParsedStackTrace | null, userData: any): void;
-  onApiCallEnd(userData: any, error?: Error): any;
+  onApiCallBegin(apiCall: string, params: Record<string, any>, frames: StackFrame[], wallTime: number, userData: any): void;
+  onApiCallEnd(userData: any, error?: Error): void;
+  onDidCreateBrowserContext(context: BrowserContext): Promise<void>;
+  onDidCreateRequestContext(context: APIRequestContext): Promise<void>;
+  onWillPause(): void;
+  onWillCloseBrowserContext(context: BrowserContext): Promise<void>;
+  onWillCloseRequestContext(context: APIRequestContext): Promise<void>;
 }
 
 export interface ClientInstrumentationListener {
-  onApiCallBegin?(apiCall: string, stackTrace: ParsedStackTrace | null, userData: any): any;
-  onApiCallEnd?(userData: any, error?: Error): any;
+  onApiCallBegin?(apiName: string, params: Record<string, any>, frames: StackFrame[], wallTime: number, userData: any): void;
+  onApiCallEnd?(userData: any, error?: Error): void;
+  onDidCreateBrowserContext?(context: BrowserContext): Promise<void>;
+  onDidCreateRequestContext?(context: APIRequestContext): Promise<void>;
+  onWillPause?(): void;
+  onWillCloseBrowserContext?(context: BrowserContext): Promise<void>;
+  onWillCloseRequestContext?(context: APIRequestContext): Promise<void>;
 }
 
 export function createInstrumentation(): ClientInstrumentation {
   const listeners: ClientInstrumentationListener[] = [];
   return new Proxy({}, {
-    get: (obj: any, prop: string) => {
+    get: (obj: any, prop: string | symbol) => {
+      if (typeof prop !== 'string')
+        return obj[prop];
       if (prop === 'addListener')
         return (listener: ClientInstrumentationListener) => listeners.push(listener);
       if (prop === 'removeListener')

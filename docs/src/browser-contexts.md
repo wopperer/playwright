@@ -3,11 +3,13 @@ id: browser-contexts
 title: "Isolation"
 ---
 
+## Introduction
+
 Tests written with Playwright execute in isolated clean-slate environments called browser contexts. This isolation model improves reproducibility and prevents cascading test failures. 
 
 ## What is Test Isolation? 
 
-Test Isolation is when each test is completely isolated from another test. Every test runs independently from any other test. This means that each test has it's own local storage, session storage, cookies etc. Playwright achieves this using [BrowserContext]s which are equivalent to incognito-like profiles. They are fast and cheap to create and are completely isolated, even when running in a single browser. Playwright creates a context for each test, and provides a default [Page] in that context.
+Test Isolation is when each test is completely isolated from another test. Every test runs independently from any other test. This means that each test has its own local storage, session storage, cookies etc. Playwright achieves this using [BrowserContext]s which are equivalent to incognito-like profiles. They are fast and cheap to create and are completely isolated, even when running in a single browser. Playwright creates a context for each test, and provides a default [Page] in that context.
 
 ## Why is Test Isolation Important? 
 
@@ -21,23 +23,9 @@ There are two different strategies when it comes to Test Isolation: start from s
 
 ## How Playwright Achieves Test Isolation
 
-Playwright uses browser contexts to achieve Test Isolation. Each test has it's own Browser Context. Running the test creates a new browser context each time.  When using Playwright as a Test Runner, browser contexts are created by default. Otherwise, you can create browser contexts manually.
+Playwright uses browser contexts to achieve Test Isolation. Each test has its own Browser Context. Running the test creates a new browser context each time.  When using Playwright as a Test Runner, browser contexts are created by default. Otherwise, you can create browser contexts manually.
 
-```js tab=js-ts
-const { test } = require('@playwright/test');
-
-test('example test', async ({ page, context }) => {
-  // "context" is an isolated BrowserContext, created for this specific test.
-  // "page" belongs to this context.
-});
-
-test('another test', async ({ page, context }) => {
-  // "context" and "page" in this second test are completely
-  // isolated from the first test.
-});
-```
-
-```js tab=js-js
+```js tab=js-test
 import { test } from '@playwright/test';
 
 test('example test', async ({ page, context }) => {
@@ -76,7 +64,8 @@ page = context.new_page()
 ```
 
 ```csharp
-await using var browser = playwright.Chromium.LaunchAsync();
+using var playwright = await Playwright.CreateAsync();
+var browser = await playwright.Chromium.LaunchAsync();
 var context = await browser.NewContextAsync();
 var page = await context.NewPageAsync();
 ```
@@ -87,28 +76,14 @@ Browser contexts can also be used to emulate multi-page scenarios involving mobi
 
 Playwright can create multiple browser contexts within a single scenario. This is useful when you want to test for multi-user functionality, like a chat.
 
-```js tab=js-js
+```js tab=js-test
 import { test } from '@playwright/test';
 
 test('admin and user', async ({ browser }) => {
   // Create two isolated browser contexts
   const adminContext = await browser.newContext();
   const userContext = await browser.newContext();
-  
-  // Create pages and interact with contexts independently
-  const adminPage = await adminContext.newPage();
-  const userPage = await userContext.newPage();
-});
-```
 
-```js tab=js-ts
-const { test } = require('@playwright/test');
-
-test('admin and user', async ({ browser }) => {
-  // Create two isolated browser contexts
-  const adminContext = await browser.newContext();
-  const userContext = await browser.newContext();
-  
   // Create pages and interact with contexts independently
   const adminPage = await adminContext.newPage();
   const userPage = await userContext.newPage();
@@ -150,9 +125,9 @@ public class Example {
 
 ```python async
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Playwright
 
-async def run(playwright):
+async def run(playwright: Playwright):
     # create a chromium browser instance
     chromium = playwright.chromium
     browser = await chromium.launch()
@@ -170,9 +145,9 @@ asyncio.run(main())
 ```
 
 ```python sync
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Playwright
 
-def run(playwright):
+def run(playwright: Playwright):
     # create a chromium browser instance
     chromium = playwright.chromium
     browser = chromium.launch()

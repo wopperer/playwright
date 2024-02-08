@@ -47,6 +47,10 @@ export function cssEscape(s: string): string {
   return result;
 }
 
+export function quoteCSSAttributeValue(text: string): string {
+  return `"${cssEscape(text).replace(/\\ /g, ' ')}"`;
+}
+
 function cssEscapeOne(s: string, i: number): string {
   // https://drafts.csswg.org/cssom/#serialize-an-identifier
   const c = s.charCodeAt(i);
@@ -67,16 +71,48 @@ export function normalizeWhiteSpace(text: string): string {
   return text.replace(/\u200b/g, '').trim().replace(/\s+/g, ' ');
 }
 
+export function normalizeEscapedRegexQuotes(source: string) {
+  // This function reverses the effect of escapeRegexForSelector below.
+  // Odd number of backslashes followed by the quote -> remove unneeded backslash.
+  return source.replace(/(^|[^\\])(\\\\)*\\(['"`])/g, '$1$2$3');
+}
+
+function escapeRegexForSelector(re: RegExp): string {
+  // Unicode mode does not allow "identity character escapes", so we do not escape and
+  // hope that it does not contain quotes and/or >> signs.
+  // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Regular_expressions/Character_escape
+  // TODO: rework RE usages in internal selectors away from literal representation to json, e.g. {source,flags}.
+  if (re.unicode || (re as any).unicodeSets)
+    return String(re);
+  // Even number of backslashes followed by the quote -> insert a backslash.
+  return String(re).replace(/(^|[^\\])(\\\\)*(["'`])/g, '$1$2\\$3').replace(/>>/g, '\\>\\>');
+}
+
 export function escapeForTextSelector(text: string | RegExp, exact: boolean): string {
   if (typeof text !== 'string')
-    return String(text);
+    return escapeRegexForSelector(text);
   return `${JSON.stringify(text)}${exact ? 's' : 'i'}`;
 }
 
-export function escapeForAttributeSelector(value: string, exact: boolean): string {
+export function escapeForAttributeSelector(value: string | RegExp, exact: boolean): string {
+  if (typeof value !== 'string')
+    return escapeRegexForSelector(value);
   // TODO: this should actually be
   //   cssEscape(value).replace(/\\ /g, ' ')
   // However, our attribute selectors do not conform to CSS parsing spec,
   // so we escape them differently.
   return `"${value.replace(/\\/g, '\\\\').replace(/["]/g, '\\"')}"${exact ? 's' : 'i'}`;
+}
+
+export function trimString(input: string, cap: number, suffix: string = ''): string {
+  if (input.length <= cap)
+    return input;
+  const chars = [...input];
+  if (chars.length > cap)
+    return chars.slice(0, cap - suffix.length).join('') + suffix;
+  return chars.join('');
+}
+
+export function trimStringWithEllipsis(input: string, cap: number): string {
+  return trimString(input, cap, '\u2026');
 }

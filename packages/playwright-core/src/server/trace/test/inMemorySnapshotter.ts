@@ -18,36 +18,39 @@ import type { BrowserContext } from '../../browserContext';
 import type { Page } from '../../page';
 import type { FrameSnapshot } from '@trace/snapshot';
 import type { SnapshotRenderer } from '../../../../../trace-viewer/src/snapshotRenderer';
-import { BaseSnapshotStorage } from '../../../../../trace-viewer/src/snapshotStorage';
+import { SnapshotStorage } from '../../../../../trace-viewer/src/snapshotStorage';
 import type { SnapshotterBlob, SnapshotterDelegate } from '../recorder/snapshotter';
 import { Snapshotter } from '../recorder/snapshotter';
 import type { ElementHandle } from '../../dom';
 import type { HarTracerDelegate } from '../../har/harTracer';
 import { HarTracer } from '../../har/harTracer';
 import type * as har from '@trace/har';
+import { ManualPromise } from '../../../utils';
 
-export class InMemorySnapshotter extends BaseSnapshotStorage implements SnapshotterDelegate, HarTracerDelegate {
+export class InMemorySnapshotter implements SnapshotterDelegate, HarTracerDelegate {
   private _blobs = new Map<string, Buffer>();
   private _snapshotter: Snapshotter;
   private _harTracer: HarTracer;
+  private _snapshotReadyPromises = new Map<string, ManualPromise<SnapshotRenderer>>();
+  private _storage: SnapshotStorage;
+  private _snapshotCount = 0;
 
   constructor(context: BrowserContext) {
-    super();
     this._snapshotter = new Snapshotter(context, this);
-    this._harTracer = new HarTracer(context, null, this, { content: 'attach', includeTraceInfo: true, recordRequestOverrides: false, waitForContentOnStop: false, skipScripts: true });
+    this._harTracer = new HarTracer(context, null, this, { content: 'attach', includeTraceInfo: true, recordRequestOverrides: false, waitForContentOnStop: false });
+    this._storage = new SnapshotStorage();
   }
 
   async initialize(): Promise<void> {
     await this._snapshotter.start();
-    this._harTracer.start();
+    this._harTracer.start({ omitScripts: true });
   }
 
   async reset() {
     await this._snapshotter.reset();
     await this._harTracer.flush();
     this._harTracer.stop();
-    this._harTracer.start();
-    this.clear();
+    this._harTracer.start({ omitScripts: true });
   }
 
   async dispose() {
@@ -56,26 +59,21 @@ export class InMemorySnapshotter extends BaseSnapshotStorage implements Snapshot
     this._harTracer.stop();
   }
 
-  async captureSnapshot(page: Page, snapshotName: string, element?: ElementHandle): Promise<SnapshotRenderer> {
-    if (this._frameSnapshots.has(snapshotName))
+  async captureSnapshot(page: Page, callId: string, snapshotName: string, element?: ElementHandle): Promise<SnapshotRenderer> {
+    if (this._snapshotReadyPromises.has(snapshotName))
       throw new Error('Duplicate snapshot name: ' + snapshotName);
 
-    this._snapshotter.captureSnapshot(page, snapshotName, element).catch(() => {});
-    return new Promise<SnapshotRenderer>(fulfill => {
-      const disposable = this.onSnapshotEvent((renderer: SnapshotRenderer) => {
-        if (renderer.snapshotName === snapshotName) {
-          disposable.dispose();
-          fulfill(renderer);
-        }
-      });
-    });
+    this._snapshotter.captureSnapshot(page, callId, snapshotName, element).catch(() => {});
+    const promise = new ManualPromise<SnapshotRenderer>();
+    this._snapshotReadyPromises.set(snapshotName, promise);
+    return promise;
   }
 
   onEntryStarted(entry: har.Entry) {
   }
 
   onEntryFinished(entry: har.Entry) {
-    this.addResource(entry);
+    this._storage.addResource(entry);
   }
 
   onContentBlob(sha1: string, buffer: Buffer) {
@@ -87,14 +85,16 @@ export class InMemorySnapshotter extends BaseSnapshotStorage implements Snapshot
   }
 
   onFrameSnapshot(snapshot: FrameSnapshot): void {
-    this.addFrameSnapshot(snapshot);
-  }
-
-  async resourceContent(sha1: string): Promise<Blob | undefined> {
-    throw new Error('Not implemented');
+    ++this._snapshotCount;
+    const renderer = this._storage.addFrameSnapshot(snapshot);
+    this._snapshotReadyPromises.get(snapshot.snapshotName || '')?.resolve(renderer);
   }
 
   async resourceContentForTest(sha1: string): Promise<Buffer | undefined> {
     return this._blobs.get(sha1);
+  }
+
+  snapshotCount() {
+    return this._snapshotCount;
   }
 }
